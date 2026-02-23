@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="description"
+        content="StyleStream: Real-Time Zero-Shot Voice Style Conversion">
+  <meta name="keywords" content="real-time voice style conversion, diffusion transformer, non-autoregressive architecture">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StyleStream: Real-Time Zero-Shot Voice Style Conversion</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+        rel="stylesheet">
+
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="icon" href="./static/images/icon.png">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/bulma-carousel.min.js"></script>
+  <script src="./static/js/bulma-slider.min.js"></script>
+  <script src="./static/js/index.js"></script>
+</head>
+<body>
+
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <h1 class="title is-1 publication-title">StyleStream: Real-Time Zero-Shot Voice Style Conversion</h1>
+          <div class="is-size-5 publication-authors">
+            <span class="author-block">
+              <strong>Yisi Liu<sup>1</sup>, Nicholas Lee<sup>1</sup>, Gopala K. Anumanchipalli<sup>1</sup></strong>
+            </span>
+          </div>
+          <div class="is-size-5 publication-authors">
+            <span class="author-block">
+              <sup>1</sup>University of California, Berkeley
+            </span>
+          </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div style="text-align: center; margin: 20px 0;">
+  <img src="./static/images/system-overview.png" alt="System Overview Diagram" style="width: 50%; height: auto; margin: 10px 0;">
+</div>
+
+
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <!-- Abstract. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Abstract</h2>
+        <div class="content has-text-justified">
+          <p>
+            Voice style conversion aims to transform an input utterance to match a target speaker's timbre, accent, and emotion, with a central challenge being the disentanglement of linguistic content from style. While prior work has explored this problem, conversion quality remains limited, and real-time voice style conversion has not been addressed. We propose StyleStream, the first streamable zero-shot voice style conversion system that achieves state-of-the-art performance. StyleStream consists of two components: a Destylizer, which removes style attributes while preserving linguistic content, and a Stylizer, a diffusion transformer (DiT) that reintroduces target style conditioned on reference speech. Robust content-style disentanglement is enforced through text supervision and a highly constrained information bottleneck. This design enables a fully non-autoregressive architecture, achieving real-time voice style conversion with an end-to-end latency of 1 second.
+          </p>
+        </div>
+      </div>
+    </div>
+      </div>
+</section>
+
+<!-- Video Demo Section -->
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Video Demo</h2>
+        <div class="content">
+          <video controls style="width: 100%; max-width: 800px;">
+            <source src="./static/video/StyleStream_Video_Demo.mp4" type="video/mp4">
+            Your browser does not support the video tag.
+          </video>
+          <p style="margin-top: 15px; font-style: italic; color: #555;">
+            Real-time demo running on-device on a laptop with RTX 4060, demonstrating zero-shot streaming Voice Style Conversion (VSC) as well as online target style swapping.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div style="width: 100%; max-width: none; padding: 0 20px;">
+    <style>
+      .demo-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 40px 0;
+        font-family: sans-serif;
+        font-size: 14px;
+      }
+    
+      .demo-table th,
+      .demo-table td {
+        border: 1px solid #ccc;
+        padding: 8px 10px;
+        text-align: center;
+        vertical-align: middle;
+      }
+    
+      .demo-table th {
+        background-color: #f2f2f2;
+        font-weight: bold;
+      }
+    
+      .demo-table audio {
+        width: 120px;
+      }
+    </style>
+
+    <!-- <div class="table-container" style="overflow-x: auto;"> -->
+      <div class="table-container" style="overflow-x: visible; width: 100%;">
+      <table class="demo-table">
+        <thead>
+          <tr>
+            <th>Source Audio</th>
+            <th>Target Style</th>
+            <th>Target Audio</th>
+            <th>FaCodec</th>
+            <th>CosyVoice 2.0</th>
+            <th>SeedVC v2</th>
+            <th>Vevo</th>
+            <th>Vevo 1.5</th>
+            <th>StyleStream (streaming)</th>
+            <th>StyleStream (offline)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Row 1: 1320_122612_000056_000002 to Arabic -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/1320_122612_000056_000002.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Arabic</td>
+            <td><audio controls><source src="./static/audio/targets/arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/facodec_vc_1320_122612_000056_000002_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/cosyvoice_vc_1320_122612_000056_000002_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/seedvc_v2_1320_122612_000056_000002_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevo_1320_122612_000056_000002_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevosing_1320_122612_000056_000002_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_chunk_30_1320_122612_000056_000002_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_1320_122612_000056_000002_to_arabic.wav" type="audio/wav"></audio></td>
+          </tr>
+
+          <!-- Row 3: 1995_1826_000026_000000 to Arabic -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/1995_1826_000026_000000.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Arabic</td>
+            <td><audio controls><source src="./static/audio/targets/arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/facodec_vc_1995_1826_000026_000000_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/cosyvoice_vc_1995_1826_000026_000000_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/seedvc_v2_1995_1826_000026_000000_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevo_1995_1826_000026_000000_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevosing_1995_1826_000026_000000_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_chunk_30_1995_1826_000026_000000_to_arabic.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_1995_1826_000026_000000_to_arabic.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 2: 1995_1826_000016_000008 to Indian -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/1995_1826_000016_000008.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Indian</td>
+            <td><audio controls><source src="./static/audio/targets/indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/facodec_vc_1995_1826_000016_000008_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/cosyvoice_vc_1995_1826_000016_000008_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/seedvc_v2_1995_1826_000016_000008_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevo_1995_1826_000016_000008_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevosing_1995_1826_000016_000008_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_chunk_30_1995_1826_000016_000008_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_1995_1826_000016_000008_to_indian.wav" type="audio/wav"></audio></td>
+          </tr>
+
+          <!-- Row 8: 7105_2340_000012_000001 to Indian -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/7105_2340_000012_000001.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Indian</td>
+            <td><audio controls><source src="./static/audio/targets/indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/facodec_vc_7105_2340_000012_000001_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/cosyvoice_vc_7105_2340_000012_000001_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/seedvc_v2_7105_2340_000012_000001_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevo_7105_2340_000012_000001_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevosing_7105_2340_000012_000001_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_chunk_30_7105_2340_000012_000001_to_indian.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_7105_2340_000012_000001_to_indian.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 4: 3005_163399_000030_000000 to Mandarin -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/3005_163399_000030_000000.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Mandarin</td>
+            <td><audio controls><source src="./static/audio/targets/mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/facodec_vc_3005_163399_000030_000000_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/cosyvoice_vc_3005_163399_000030_000000_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/seedvc_v2_3005_163399_000030_000000_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevo_3005_163399_000030_000000_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevosing_3005_163399_000030_000000_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_chunk_30_3005_163399_000030_000000_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_3005_163399_000030_000000_to_mandarin.wav" type="audio/wav"></audio></td>
+          </tr>
+
+          <!-- Row 6: 3764_168670_000017_000001 to Mandarin -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/3764_168670_000017_000001.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Mandarin</td>
+            <td><audio controls><source src="./static/audio/targets/mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/facodec_vc_3764_168670_000017_000001_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/cosyvoice_vc_3764_168670_000017_000001_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/seedvc_v2_3764_168670_000017_000001_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevo_3764_168670_000017_000001_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevosing_3764_168670_000017_000001_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_chunk_30_3764_168670_000017_000001_to_mandarin.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_3764_168670_000017_000001_to_mandarin.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 5: 3528_168669_000045_000000 to British -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/3528_168669_000045_000000.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>British</td>
+            <td><audio controls><source src="./static/audio/targets/british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/facodec_vc_3528_168669_000045_000000_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/cosyvoice_vc_3528_168669_000045_000000_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/seedvc_v2_3528_168669_000045_000000_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevo_3528_168669_000045_000000_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevosing_3528_168669_000045_000000_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_chunk_30_3528_168669_000045_000000_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_3528_168669_000045_000000_to_british.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          
+          
+          <!-- Row 7: 4992_41797_000016_000003 to British -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/4992_41797_000016_000003.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>British</td>
+            <td><audio controls><source src="./static/audio/targets/british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/facodec_vc_4992_41797_000016_000003_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/cosyvoice_vc_4992_41797_000016_000003_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/seedvc_v2_4992_41797_000016_000003_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevo_4992_41797_000016_000003_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevosing_4992_41797_000016_000003_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_chunk_30_4992_41797_000016_000003_to_british.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_4992_41797_000016_000003_to_british.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          
+          
+          <!-- Row 9: S_018851_006063 to US -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/S_018851_006063.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>US</td>
+            <td><audio controls><source src="./static/audio/targets/us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/facodec_vc_S_018851_006063_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/cosyvoice_vc_S_018851_006063_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/seedvc_v2_S_018851_006063_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevo_S_018851_006063_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevosing_S_018851_006063_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_chunk_30_S_018851_006063_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_S_018851_006063_to_us.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 10: S_019227_005554 to US -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/S_019227_005554.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>US</td>
+            <td><audio controls><source src="./static/audio/targets/us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/facodec_vc_S_019227_005554_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/cosyvoice_vc_S_019227_005554_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/seedvc_v2_S_019227_005554_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevo_S_019227_005554_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/vevosing_S_019227_005554_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_chunk_30_S_019227_005554_to_us.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/accent/stylestream_S_019227_005554_to_us.wav" type="audio/wav"></audio></td>
+          </tr>
+          <!-- Row 1: 121_121726_000025_000000 to Sad -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/121_121726_000025_000000.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Sad</td>
+            <td><audio controls><source src="./static/audio/targets/sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/facodec_vc_121_121726_000025_000000_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/cosyvoice_vc_121_121726_000025_000000_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/seedvc_v2_121_121726_000025_000000_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevo_121_121726_000025_000000_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevosing_121_121726_000025_000000_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_chunk_30_121_121726_000025_000000_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_121_121726_000025_000000_to_sad.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 2: 5764_299665_000058_000001 to Sad -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/5764_299665_000058_000001.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Sad</td> 
+            <td><audio controls><source src="./static/audio/targets/sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/facodec_vc_5764_299665_000058_000001_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/cosyvoice_vc_5764_299665_000058_000001_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/seedvc_v2_5764_299665_000058_000001_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevo_5764_299665_000058_000001_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevosing_5764_299665_000058_000001_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_chunk_30_5764_299665_000058_000001_to_sad.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_5764_299665_000058_000001_to_sad.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 3: 8131_117016_000047_000003 to Calm -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/8131_117016_000047_000003.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Calm</td>
+            <td><audio controls><source src="./static/audio/targets/calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/facodec_vc_8131_117016_000047_000003_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/cosyvoice_vc_8131_117016_000047_000003_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/seedvc_v2_8131_117016_000047_000003_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevo_8131_117016_000047_000003_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevosing_8131_117016_000047_000003_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_chunk_30_8131_117016_000047_000003_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_8131_117016_000047_000003_to_calm.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 4: 8224_274384_000005_000001 to Calm -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/8224_274384_000005_000001.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Calm</td>
+            <td><audio controls><source src="./static/audio/targets/calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/facodec_vc_8224_274384_000005_000001_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/cosyvoice_vc_8224_274384_000005_000001_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/seedvc_v2_8224_274384_000005_000001_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevo_8224_274384_000005_000001_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevosing_8224_274384_000005_000001_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_chunk_30_8224_274384_000005_000001_to_calm.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_8224_274384_000005_000001_to_calm.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 5: S_003171_005595 to Fear -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/S_003171_005595.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Fear</td>
+            <td><audio controls><source src="./static/audio/targets/fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/facodec_vc_S_003171_005595_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/cosyvoice_vc_S_003171_005595_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/seedvc_v2_S_003171_005595_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevo_S_003171_005595_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevosing_S_003171_005595_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_chunk_30_S_003171_005595_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_S_003171_005595_to_fear.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 6: S_003172_005840 to Fear -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/S_003172_005840.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Fear</td>
+            <td><audio controls><source src="./static/audio/targets/fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/facodec_vc_S_003172_005840_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/cosyvoice_vc_S_003172_005840_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/seedvc_v2_S_003172_005840_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevo_S_003172_005840_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevosing_S_003172_005840_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_chunk_30_S_003172_005840_to_fear.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_S_003172_005840_to_fear.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 7: S_003583_006618 to Angry -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/S_003583_006618.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Angry</td>
+            <td><audio controls><source src="./static/audio/targets/angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/facodec_vc_S_003583_006618_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/cosyvoice_vc_S_003583_006618_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/seedvc_v2_S_003583_006618_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevo_S_003583_006618_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevosing_S_003583_006618_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_chunk_30_S_003583_006618_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_S_003583_006618_to_angry.wav" type="audio/wav"></audio></td>
+          </tr>
+
+          <!-- Row 10: S_023538_005400 to Angry -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/S_023538_005400.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Angry</td>
+            <td><audio controls><source src="./static/audio/targets/angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/facodec_vc_S_023538_005400_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/cosyvoice_vc_S_023538_005400_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/seedvc_v2_S_023538_005400_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevo_S_023538_005400_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevosing_S_023538_005400_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_chunk_30_S_023538_005400_to_angry.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_S_023538_005400_to_angry.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 8: S_004085_004635 to Happy -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/S_004085_004635.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Happy</td>
+            <td><audio controls><source src="./static/audio/targets/happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/facodec_vc_S_004085_004635_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/cosyvoice_vc_S_004085_004635_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/seedvc_v2_S_004085_004635_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevo_S_004085_004635_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevosing_S_004085_004635_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_chunk_30_S_004085_004635_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_S_004085_004635_to_happy.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          <!-- Row 9: S_005056_005806 to Happy -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/audio/sources/S_005056_005806.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Happy</td>
+            <td><audio controls><source src="./static/audio/targets/happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/facodec_vc_S_005056_005806_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/cosyvoice_vc_S_005056_005806_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/seedvc_v2_S_005056_005806_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevo_S_005056_005806_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/vevosing_S_005056_005806_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_chunk_30_S_005056_005806_to_happy.wav" type="audio/wav"></audio></td>
+            <td><audio controls><source src="./static/audio/emotion/stylestream_S_005056_005806_to_happy.wav" type="audio/wav"></audio></td>
+          </tr>
+          
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Cross-Lingual Accent Conversion Section -->
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column">
+        <h2 class="title is-3">Cross-Lingual Accent Conversion</h2>
+        <div class="content has-text-justified">
+          <p>
+            StyleStream can induce foreign accents in English speech by conditioning on target samples in other languages. Below are examples where English source utterances are converted to have accents from various languages (Arabic, French, Hindi, Italian, Russian, Spanish).
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="width: 100%; max-width: none; padding: 0 20px;">
+    <div class="table-container" style="overflow-x: visible; width: 100%;">
+      <table class="demo-table">
+        <thead>
+          <tr>
+            <th>English Source</th>
+            <th>Target Language</th>
+            <th>Foreign Language Target</th>
+            <th>Converted (English with Accent)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Arabic -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/arabic/source.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Arabic</td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/arabic/arabic.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/arabic/converted.wav" type="audio/wav">
+              </audio>
+            </td>
+          </tr>
+
+          <!-- French -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/french/source.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>French</td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/french/french.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/french/converted.wav" type="audio/wav">
+              </audio>
+            </td>
+          </tr>
+
+          <!-- Hindi -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/hindi/source.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Hindi</td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/hindi/hindi.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/hindi/converted.wav" type="audio/wav">
+              </audio>
+            </td>
+          </tr>
+
+          <!-- Italian -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/italian/source.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Italian</td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/italian/italian.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/italian/converted.wav" type="audio/wav">
+              </audio>
+            </td>
+          </tr>
+
+          <!-- Russian -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/russian/source.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Russian</td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/russian/russian.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/russian/converted.wav" type="audio/wav">
+              </audio>
+            </td>
+          </tr>
+
+          <!-- Spanish -->
+          <tr>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/spanish/source.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>Spanish</td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/spanish/spanish.wav" type="audio/wav">
+              </audio>
+            </td>
+            <td>
+              <audio controls>
+                <source src="./static/cross-lingual/spanish/converted.wav" type="audio/wav">
+              </audio>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content has-text-centered"> <!-- Added has-text-centered here -->
+          <p>
+            Website template borrowed from <a
+              href="https://github.com/nerfies/nerfies.github.io">here</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
