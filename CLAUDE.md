@@ -11,7 +11,7 @@ StyleStreamはUC Berkeley Speech Groupによるリアルタイムゼロショッ
 
 ## 現在の状態
 
-フェーズ0（プロジェクト基盤構築）・フェーズ1（データ前処理パイプライン）完了。データダウンロード・リサンプリング・メル計算・HuBERT特徴量抽出・全3データセット対応が整備済み。次はフェーズ2（Destylizer実装: Conformer + FSQ + ASRデコーダ）。
+フェーズ0（プロジェクト基盤構築）・フェーズ1（データ前処理パイプライン）・フェーズ2（Destylizer実装）完了。ALiBi付きConformer×6、FSQ [5,3,3]、CTC/seq2seq ASRデコーダ、学習パイプライン、推論API実装済み。次はフェーズ3（Stylizer / DiT実装: CFM + adaLN-Zero + スタイルエンコーダ）。
 
 ## アーキテクチャ（論文より）
 
@@ -40,7 +40,14 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
 
 - `stylestream/` — メインPythonパッケージ
   - `config.py` — 全構造化設定dataclass
-  - `destylizer/__init__.py` — Destylizerモジュール（モデル実装はPhase2）
+  - `destylizer/` — Destylizerモジュール（実装済み）
+    - `alibi.py` — ALiBi位置エンコーディング
+    - `conformer.py` — Conformerブロック×6（マカロン構造, ALiBi, 深さ方向分離畳み込み）
+    - `fsq.py` — FSQ [5,3,3]（コードブック45, STE勾配伝搬）
+    - `asr_head.py` — CTC + seq2seq ASRデコーダ
+    - `model.py` — Destylizer統合モデル
+    - `trainer.py` — DestylizerTrainer（BaseTrainer拡張）
+    - `feature_extractor.py` — 推論時コンテンツ特徴量抽出API
   - `stylizer/__init__.py` — Stylizerモジュール（モデル実装はPhase3）
   - `vocoder/__init__.py` — ボコーダモジュール（モデル実装はPhase4）
   - `data/` — データ前処理・ローダー
@@ -61,9 +68,10 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
   - `download_models.py` — 事前学習モデルダウンロード
   - `preprocess_data.py` — 前処理CLI（実装済み）
   - `validate_features.py` — 特徴量検証（実装済み）
-  - `train_destylizer.py`, `train_stylizer.py`, `train_vocoder.py` — 学習スクリプト（スタブ）
+  - `train_destylizer.py` — Destylizer学習CLI（実装済み）
+  - `train_stylizer.py`, `train_vocoder.py` — 学習スクリプト（スタブ）
   - `evaluate.py`, `inference.py` — 評価・推論（スタブ）
-- `tests/` — 114テスト（mel, audio, text, manifest, datasets）
+- `tests/` — 216テスト（mel, audio, text, manifest, datasets, conformer, fsq, asr_head, destylizer_model）
 - `docs/` — 静的デモWebサイト + 論文分析 + マイルストーン
 - `pyproject.toml`, `CLAUDE.md`, `README.md`, `LICENSE`, `.gitignore`
 
@@ -91,8 +99,11 @@ uv run python scripts/preprocess_data.py --manifest data/manifests/libritts.csv 
 # 特徴量検証
 uv run python scripts/validate_features.py --manifest data/manifests/libritts.csv --processed-dir data/processed
 
-# テスト (114件)
+# テスト (216件)
 uv run pytest tests/ -v
+
+# Destylizer学習
+uv run python scripts/train_destylizer.py --config configs/destylizer/offline.yaml
 
 # モデルダウンロード
 uv run python scripts/download_models.py --stage train
