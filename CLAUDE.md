@@ -143,7 +143,7 @@ uv run python scripts/preprocess_data.py --manifest data/manifests/libritts.csv 
 # 特徴量検証
 uv run python scripts/validate_features.py --manifest data/manifests/libritts.csv --processed-dir data/processed
 
-# テスト (461件)
+# テスト (568件)
 uv run pytest tests/ -v
 
 # Destylizer学習
@@ -163,6 +163,16 @@ uv run python scripts/train_streaming_stylizer.py --config configs/streaming/sty
 
 # ストリーミング推論
 uv run python scripts/streaming_inference.py --source source.wav --target target.wav --output converted.wav
+
+# 評価（バッチ推論 + メトリクス計算）
+uv run python scripts/inference.py --batch data/eval/pairs.csv --output-dir eval_results/converted --destylizer-checkpoint runs/destylizer/best --stylizer-checkpoint runs/stylizer/best --vocoder-checkpoint runs/vocoder/best
+uv run python scripts/evaluate.py --converted-dir eval_results/converted --pairs data/eval/pairs.csv --output-dir eval_results --config configs/eval/stylestream_test.yaml
+
+# 単一ファイル推論（オフライン）
+uv run python scripts/inference.py --source source.wav --reference ref.wav -o output.wav --destylizer-checkpoint runs/destylizer/best --stylizer-checkpoint runs/stylizer/best --vocoder-checkpoint runs/vocoder/best
+
+# 単一ファイル推論（ストリーミング）
+uv run python scripts/inference.py --source source.wav --reference ref.wav -o output.wav --streaming --destylizer-checkpoint runs/destylizer/best --stylizer-checkpoint runs/stylizer/best --vocoder-checkpoint runs/vocoder/best
 
 # モデルダウンロード
 uv run python scripts/download_models.py --stage train
