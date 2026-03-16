@@ -43,6 +43,13 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
   - `docs/static/audio/` — 音声サンプル（アクセント、感情、ソース、ターゲット、多言語）
   - `docs/static/images/` — システムアーキテクチャ図
   - `docs/index.html` — 音声比較付きデモページ
+  - `docs/milestones.md` — 開発マイルストーン統合ドキュメント
+  - `docs/phase0_milestones.md` — フェーズ0: プロジェクト基盤構築
+  - `docs/phase1_data_milestones.md` — フェーズ1: データ前処理パイプライン
+  - `docs/phase2_destylizer_milestones.md` — フェーズ2: Destylizer実装
+  - `docs/phase3_stylizer_milestones.md` — フェーズ3: Stylizer/DiT実装
+  - `docs/phase4_5_milestones.md` — フェーズ4-5: ボコーダ・ストリーミング
+  - `docs/phase6_eval_milestones.md` — フェーズ6: 評価パイプライン
 - `README.md` — プロジェクト説明と引用情報
 - `LICENSE` — 研究目的のみのライセンス
 
