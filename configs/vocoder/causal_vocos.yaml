@@ -1,0 +1,62 @@
+# @package _global_
+# StyleStream Vocoder — Causal Vocos config
+# Standard Vocos backbone with ConvNext blocks replaced by causal convolutions.
+
+defaults:
+  - _self_
+
+# ── Backbone ──────────────────────────────────────────────────────
+model:
+  name: "causal_vocos"
+  hidden_size: 512
+  num_layers: 8         # ConvNext blocks
+  intermediate_size: 1536
+  causal: true          # causal convolutions throughout
+  init_checkpoint: "charactr/vocos-mel-24khz"  # official Vocos; warm start
+
+# ── Mel spectrogram (must match stylizer exactly) ─────────────────
+mel:
+  n_mels: 100
+  hop_length: 320
+  n_fft: 1024
+  sample_rate: 16000
+  f_min: 0
+  f_max: 8000
+
+# ── Discriminator ─────────────────────────────────────────────────
+discriminator:
+  type: "multi_scale"
+  scales: [1, 2, 4]
+  channels: 64
+
+# ── Loss weights ──────────────────────────────────────────────────
+loss:
+  reconstruction: 45.0      # L1 mel reconstruction
+  gan_generator: 1.0        # adversarial (generator side)
+  gan_discriminator: 1.0    # adversarial (discriminator side)
+  feature_matching: 2.0     # multi-scale feature matching
+
+# ── Training ──────────────────────────────────────────────────────
+training:
+  steps: 100000
+  batch_size: 64            # per-GPU
+  num_gpus: 2
+  segment_length: 2         # seconds
+  optimizer: "adamw"
+  peak_lr: 2.0e-4
+  warmup_steps: 1000
+  scheduler: "cosine_annealing"
+  gradient_clip: 1.0
+  gradient_accumulation_steps: 1
+  mixed_precision: "bf16"
+  log_interval: 100
+  save_interval: 10000
+  val_interval: 2000
+  seed: 42
+
+# ── Data ──────────────────────────────────────────────────────────
+data:
+  name: "libritts"
+  split_train: "train-clean-360"
+  split_val: "dev-clean"
+  sample_rate: 16000

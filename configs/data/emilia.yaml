@@ -1,0 +1,21 @@
+# Emilia-EN dataset configuration
+# Large-scale English speech dataset for Stylizer (DiT + CFM) training
+# Source: HuggingFace (open access, several TB)
+
+name: "emilia_en"
+
+# Directory paths
+root_dir: "data/raw/emilia_en"
+processed_dir: "data/processed/emilia_en"
+features_dir: "data/features/emilia_en"
+
+# Audio settings
+sample_rate: 16000
+
+# Dataset statistics
+total_hours: 50000
+
+# Pipeline usage
+# - stylizer: 16-layer DiT with Conditional Flow Matching, trained for 400k steps
+use_for:
+  - "stylizer"

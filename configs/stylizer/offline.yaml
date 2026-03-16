@@ -1,0 +1,75 @@
+# @package _global_
+# StyleStream Stylizer — Offline (non-streaming) training config
+# Reference: paper section 10.8, Tables 5-6
+
+defaults:
+  - _self_
+
+# ── DiT backbone ──────────────────────────────────────────────────
+dit:
+  num_layers: 16
+  hidden_size: 768
+  ffn_size: 3072        # 4x hidden
+  num_heads: 12         # head_dim = 64
+  adaln_zero: true      # adaLN-Zero conditioning (style + timestep)
+  dropout: 0.0
+  attention_type: "bidirectional"  # full self-attention for offline
+
+# ── Mel spectrogram (shared with vocoder) ─────────────────────────
+mel:
+  n_mels: 100
+  hop_length: 320       # → 50 Hz at 16 kHz
+  n_fft: 1024
+  sample_rate: 16000
+  f_min: 0
+  f_max: 8000
+
+# ── WavLM-TDNN style encoder ─────────────────────────────────────
+style_encoder:
+  model_id: "microsoft/wavlm-base-plus-sv"
+  hidden_size: 768
+  num_layers: 13        # all transformer layers used
+  pooling: "attentive_statistics"
+  frozen: true          # WavLM backbone frozen; layer weights + TDNN head learnable
+
+# ── Conditional Flow Matching ─────────────────────────────────────
+cfm:
+  nfe: 16               # number of function evaluations (ODE steps)
+  sampling: "euler"
+  sigma_min: 1.0e-5
+
+# ── Classifier-free guidance ──────────────────────────────────────
+cfg:
+  strength: 2.0
+  content_drop: 0.2     # probability of dropping content (destylizer) input
+  context_drop: 0.3     # probability of dropping unmasked context
+  style_drop: 0.3       # probability of dropping style embedding
+
+# ── Spectrogram inpainting mask ───────────────────────────────────
+mask:
+  ratio_min: 0.7
+  ratio_max: 1.0
+  type: "contiguous"    # single contiguous span
+
+# ── Training ──────────────────────────────────────────────────────
+training:
+  steps: 400000
+  batch_size: 64        # per-GPU
+  num_gpus: 8
+  optimizer: "adamw"
+  peak_lr: 1.0e-4
+  warmup_steps: 2000
+  scheduler: "cosine_annealing"
+  gradient_clip: 1.0
+  gradient_accumulation_steps: 1
+  mixed_precision: "bf16"
+  segment_length: 6     # seconds — random crop per sample
+  log_interval: 100
+  save_interval: 10000
+  val_interval: 5000
+  seed: 42
+
+# ── Data ──────────────────────────────────────────────────────────
+data:
+  name: "emilia"
+  sample_rate: 16000

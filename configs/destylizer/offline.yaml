@@ -1,0 +1,82 @@
+# Destylizer Offline Configuration
+# Paper: StyleStream (arXiv:2602.20113v1), Section 10.8
+#
+# The Destylizer extracts content features by removing style information.
+# Architecture: HuBERT-Large (frozen) -> Conformer x6 -> FSQ [5,3,3] -> ASR Decoder
+# At inference time, only the pre-quantization continuous features (fc) are used.
+
+# --------------------------------------------------------------------------- #
+# HuBERT Feature Extractor
+# --------------------------------------------------------------------------- #
+hubert:
+  model_id: "facebook/hubert-large-ls960-ft"
+  layer: 18                      # Transformer layer 18 (hidden_states[18])
+  frozen: true                   # Frozen during offline training
+  output_dim: 768
+
+# --------------------------------------------------------------------------- #
+# Conformer Encoder (6 layers, Macaron structure)
+# --------------------------------------------------------------------------- #
+conformer:
+  num_layers: 6
+  hidden_size: 768
+  ffn_size: 3072                 # Expansion ratio 4x
+  positional_encoding: "alibi"   # ALiBi (no learned positional embeddings)
+  kernel_size: 31                # Depthwise conv kernel (Conformer default)
+  num_heads: 12                  # 768 / 64 = 12 heads
+  head_dim: 64
+  dropout: 0.1
+  activation: "swish"
+
+# --------------------------------------------------------------------------- #
+# Finite Scalar Quantization (FSQ)
+# --------------------------------------------------------------------------- #
+# Codebook size: 5 x 3 x 3 = 45 (~5.49 bits/frame)
+# Gradient propagation: Straight-Through Estimator (STE)
+# Content feature fc is taken BEFORE this module (Conformer output, 768-dim)
+fsq:
+  levels: [5, 3, 3]             # V1=5, V2=3, V3=3
+  down_dim: 3                   # Projection 768 -> 3 before quantization
+  up_dim: 768                   # Projection 3 -> 768 after quantization
+
+# --------------------------------------------------------------------------- #
+# ASR Decoder (used only during training, discarded at inference)
+# --------------------------------------------------------------------------- #
+asr_decoder:
+  num_layers: 4
+  hidden_size: 768
+  ffn_size: 3072
+  num_heads: 12
+  dropout: 0.1
+  vocab_size: 30                 # 26 letters + space + blank + <sos> + <eos>
+  loss_type: "seq2seq_ce"        # Sequence-to-sequence cross-entropy
+  label_smoothing: 0.1
+
+# --------------------------------------------------------------------------- #
+# Training
+# --------------------------------------------------------------------------- #
+training:
+  steps: 100000
+  batch_size: 32                 # Total across all GPUs
+  num_gpus: 8
+  optimizer: "adamw"
+  betas: [0.9, 0.98]
+  weight_decay: 0.01
+  peak_lr: 1.0e-4
+  min_lr: 1.0e-6
+  warmup_steps: 4000             # Linear warmup
+  scheduler: "cosine_annealing"
+  gradient_clip: 1.0
+  gradient_accumulation_steps: 1
+  mixed_precision: "bf16"
+  log_interval: 100
+  save_interval: 10000
+  val_interval: 5000
+
+# --------------------------------------------------------------------------- #
+# Data
+# --------------------------------------------------------------------------- #
+data:
+  name: "lmg"                   # LibriTTS + MSP-Podcast + GLOBE (~1,300 hours)
+  sample_rate: 16000
+  frame_rate: 50                 # Hz (hop_size=320 at 16kHz)

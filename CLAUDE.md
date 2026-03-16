@@ -11,7 +11,7 @@ StyleStreamはUC Berkeley Speech Groupによるリアルタイムゼロショッ
 
 ## 現在の状態
 
-このリポジトリには現在**デモWebサイト**（`docs/`ディレクトリ）の音声サンプルと比較結果のみが含まれています。モデルの推論コードと重みは原著者からまだ公開されていません。このリポジトリで再現実装を構築中です。
+フェーズ0（プロジェクト基盤構築）完了。メインパッケージ `stylestream/` にモデル・学習・評価の基盤コードが整備済み。フェーズ1（データ前処理パイプライン）に着手可能。
 
 ## アーキテクチャ（論文より）
 
@@ -38,22 +38,55 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
 
 ## リポジトリ構造
 
-- `docs/` — 静的デモWebサイト（GitHub Pages）+ 論文分析
-  - `docs/paper_analysis.md` — 再現実装のための包括的な論文分析
-  - `docs/static/audio/` — 音声サンプル（アクセント、感情、ソース、ターゲット、多言語）
-  - `docs/static/images/` — システムアーキテクチャ図
-  - `docs/index.html` — 音声比較付きデモページ
-  - `docs/milestones.md` — 開発マイルストーン統合ドキュメント
-  - `docs/phase0_milestones.md` — フェーズ0: プロジェクト基盤構築
-  - `docs/phase1_data_milestones.md` — フェーズ1: データ前処理パイプライン
-  - `docs/phase2_destylizer_milestones.md` — フェーズ2: Destylizer実装
-  - `docs/phase3_stylizer_milestones.md` — フェーズ3: Stylizer/DiT実装
-  - `docs/phase4_5_milestones.md` — フェーズ4-5: ボコーダ・ストリーミング
-  - `docs/phase6_eval_milestones.md` — フェーズ6: 評価パイプライン
-- `README.md` — プロジェクト説明と引用情報
-- `LICENSE` — 研究目的のみのライセンス
+- `stylestream/` — メインPythonパッケージ
+  - `config.py` — 全構造化設定dataclass（AudioConfig, MelConfig, Destylizer/Stylizer/VocoderConfig等）
+  - `destylizer/` — Destylizerモジュール（Conformer + FSQ + ASRデコーダ）
+  - `stylizer/` — Stylizerモジュール（DiT + CFM + スタイルエンコーダ）
+  - `vocoder/` — ボコーダモジュール（Causal Vocos）
+  - `data/` — データ前処理・ローダー
+  - `utils/` — 共通ユーティリティ
+    - `mel.py` — MelSpectrogramTransform（100ビン, hop 320, 50Hz）
+    - `audio.py` — オーディオI/O（load/save/resample/segment）
+    - `logging.py` — ロギング設定（分散学習対応）
+    - `checkpoint.py` — CheckpointManager（safetensors + torch）
+    - `hub.py` — 外部モデル管理（HuBERT, WavLM, Vocos等7モデル）
+  - `training/` — 学習基盤
+    - `trainer.py` — BaseTrainer（accelerate, step-based, DDP/FSDP）
+    - `scheduler.py` — CosineAnnealingWarmup
+    - `distributed.py` — 分散学習ユーティリティ
+  - `eval/` — 評価パイプライン
+  - `inference/` — 推論パイプライン
+- `configs/` — Hydra YAML設定ファイル
+  - `destylizer/` — offline.yaml, streaming.yaml
+  - `stylizer/` — offline.yaml, streaming.yaml
+  - `vocoder/` — causal_vocos.yaml
+  - `data/` — libritts.yaml, emilia.yaml, lmg.yaml
+  - `eval/` — stylestream_test.yaml
+- `scripts/` — エントリーポイントスクリプト
+- `tests/` — テスト（pytest）
+- `docs/` — 静的デモWebサイト + 論文分析 + マイルストーン
 
 ## 開発環境
 
-- Python依存関係管理: `uv`（新パッケージは `uv add` で追加）
-- 現在の依存関係: `pymupdf`（PDF解析）
+- Python 3.12、パッケージ管理: `uv`
+- 依存パッケージ: `uv sync` でコア依存をインストール
+- 全依存（学習+評価+開発）: `uv sync --extra train --extra eval --extra dev`
+- テスト実行: `uv run pytest tests/`
+- コア依存: torch, torchaudio, transformers, accelerate, einops, hydra-core, omegaconf
+
+## コマンド
+
+```bash
+# 環境構築
+uv sync --extra train --extra eval --extra dev
+
+# テスト
+uv run pytest tests/ -v
+
+# モデルダウンロード
+uv run python scripts/download_models.py --stage train
+uv run python scripts/download_models.py --list
+
+# 学習（未実装、スタブのみ）
+uv run python scripts/train_destylizer.py --help
+```

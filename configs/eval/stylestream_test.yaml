@@ -1,0 +1,118 @@
+# StyleStream-Test evaluation configuration
+# Benchmark for zero-shot voice style conversion
+# Total: 300 source utterances x 10 target utterances = 3,000 evaluation pairs
+
+name: "stylestream_test"
+
+# --------------------------------------------------------------------------
+# Source utterances (300 total, 100 from each dataset)
+# --------------------------------------------------------------------------
+source:
+  total_utterances: 300
+  datasets:
+    esd:
+      name: "ESD"
+      root_dir: "data/eval/esd"
+      num_utterances: 100
+      description: "Emotional Speech Dataset"
+
+    globe_test:
+      name: "GLOBE-test"
+      root_dir: "data/eval/globe_test"
+      num_utterances: 100
+      description: "Accented English speech (test split)"
+
+    libritts_test_clean:
+      name: "LibriTTS-test-clean"
+      root_dir: "data/eval/libritts_test_clean"
+      num_utterances: 100
+      description: "Clean read speech from LibriTTS test set"
+
+# --------------------------------------------------------------------------
+# Target utterances (10 total: 5 emotions + 5 accents)
+# --------------------------------------------------------------------------
+target:
+  total_utterances: 10
+  root_dir: "data/eval/targets"
+
+  # Emotion targets (5 utterances)
+  emotions:
+    - "happy"
+    - "angry"
+    - "sad"
+    - "fearful"
+    - "calm"
+
+  # Accent targets (5 utterances)
+  accents:
+    - "british"
+    - "american"
+    - "indian"
+    - "arabic"
+    - "chinese"
+
+# --------------------------------------------------------------------------
+# Evaluation pairs
+# --------------------------------------------------------------------------
+total_pairs: 3000  # 300 sources x 10 targets
+
+# --------------------------------------------------------------------------
+# Objective metrics
+# --------------------------------------------------------------------------
+metrics:
+  # Content preservation: Word Error Rate (lower is better)
+  wer:
+    name: "WER"
+    direction: "lower_is_better"
+    unit: "percent"
+    model_id: "openai/whisper-large-v3"
+    description: "Speech intelligibility measured by ASR transcription accuracy"
+
+  # Speaker similarity (higher is better)
+  s_sim:
+    name: "S-SIM"
+    direction: "higher_is_better"
+    unit: "cosine_similarity"
+    model_id: "resemble-ai/Resemblyzer"
+    description: "Speaker/timbre similarity between converted and target speech"
+
+  # Accent similarity (higher is better)
+  a_sim:
+    name: "A-SIM"
+    direction: "higher_is_better"
+    unit: "cosine_similarity"
+    model_id: "Jzuluaga/accent-id-commonaccent-ecapa"
+    description: "Accent similarity using ECAPA-TDNN accent identification model"
+
+  # Emotion similarity (higher is better)
+  e_sim:
+    name: "E-SIM"
+    direction: "higher_is_better"
+    unit: "cosine_similarity"
+    model_id: "iic/emotion2vec_plus_large"
+    description: "Emotion similarity using emotion2vec embeddings"
+
+  # Speech quality (higher is better, used primarily in ablations)
+  utmos:
+    name: "UTMOS"
+    direction: "higher_is_better"
+    unit: "mos"
+    model_id: "sarulab-speech/UTMOS-demo"
+    description: "Predicted mean opinion score for overall speech quality"
+
+# --------------------------------------------------------------------------
+# Reference baselines from the paper (Table 1, offline, 5s target)
+# --------------------------------------------------------------------------
+paper_baselines:
+  ground_truth:
+    wer: 3.8
+  stylestream_offline:
+    wer: 9.2
+    s_sim: 0.852
+    a_sim: 0.640
+    e_sim: 0.827
+  stylestream_streaming:
+    wer: 10.7
+    s_sim: 0.837
+    a_sim: 0.626
+    e_sim: 0.733

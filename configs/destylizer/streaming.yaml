@@ -1,0 +1,100 @@
+# Destylizer Streaming Configuration
+# Paper: StyleStream (arXiv:2602.20113v1), Sections 7, 10.8
+#
+# The streaming Destylizer is distilled from the offline checkpoint using MSE loss.
+# Key differences from offline:
+#   - HuBERT is unfrozen and adapted with chunked-causal attention
+#   - Conformer uses chunked-causal attention + causal convolutions
+#   - Trained with MSE distillation against the offline Destylizer's features
+
+# --------------------------------------------------------------------------- #
+# Offline Checkpoint (teacher for distillation)
+# --------------------------------------------------------------------------- #
+offline_checkpoint: "checkpoints/destylizer/offline/best.pt"
+
+# --------------------------------------------------------------------------- #
+# HuBERT Feature Extractor
+# --------------------------------------------------------------------------- #
+hubert:
+  model_id: "facebook/hubert-large-ls960-ft"
+  layer: 18
+  frozen: false                  # Unfrozen for streaming adaptation
+  output_dim: 768
+
+# --------------------------------------------------------------------------- #
+# Conformer Encoder (6 layers, Macaron structure)
+# --------------------------------------------------------------------------- #
+conformer:
+  num_layers: 6
+  hidden_size: 768
+  ffn_size: 3072
+  positional_encoding: "alibi"
+  kernel_size: 31
+  num_heads: 12
+  head_dim: 64
+  dropout: 0.1
+  activation: "swish"
+  causal_conv: true              # Left-padding only (no future frames)
+
+# --------------------------------------------------------------------------- #
+# Streaming
+# --------------------------------------------------------------------------- #
+streaming:
+  chunk_size_ms: 600             # 600ms = 30 frames at 50Hz
+  chunk_size_frames: 30
+  attention_mode: "chunked_causal"  # Each chunk attends to itself + all past chunks
+  target_length_s: 5             # Fixed-length target utterance as context
+  ring_buffer_s: 5               # Source content features accumulated per-chunk
+
+# --------------------------------------------------------------------------- #
+# Finite Scalar Quantization (FSQ)
+# --------------------------------------------------------------------------- #
+fsq:
+  levels: [5, 3, 3]
+  down_dim: 3
+  up_dim: 768
+
+# --------------------------------------------------------------------------- #
+# ASR Decoder (not used during streaming distillation)
+# --------------------------------------------------------------------------- #
+asr_decoder:
+  num_layers: 4
+  hidden_size: 768
+  ffn_size: 3072
+  num_heads: 12
+  dropout: 0.1
+  vocab_size: 30
+  loss_type: "seq2seq_ce"
+  label_smoothing: 0.1
+
+# --------------------------------------------------------------------------- #
+# Training (MSE distillation from offline Destylizer)
+# --------------------------------------------------------------------------- #
+training:
+  steps: 100000
+  batch_size: 32
+  num_gpus: 8
+  optimizer: "adamw"
+  betas: [0.9, 0.98]
+  weight_decay: 0.01
+  peak_lr: 1.0e-4
+  min_lr: 1.0e-6
+  warmup_steps: 4000
+  scheduler: "cosine_annealing"
+  gradient_clip: 1.0
+  gradient_accumulation_steps: 1
+  mixed_precision: "bf16"
+  log_interval: 100
+  save_interval: 10000
+  val_interval: 5000
+  # Distillation: minimize MSE between streaming and offline content features
+  loss_type: "mse_distillation"
+  init_from_offline: true        # Initialize from offline checkpoint before distillation
+
+# --------------------------------------------------------------------------- #
+# Data
+# --------------------------------------------------------------------------- #
+data:
+  name: "lmg"
+  sample_rate: 16000
+  frame_rate: 50

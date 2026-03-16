@@ -1,0 +1,53 @@
+# LMG dataset configuration
+# Combined corpus: LibriTTS + MSP-Podcast + GLOBE
+# Used for Destylizer training (~1300 hours of style-diverse speech)
+#
+# Design rationale (from paper ablation, Table 8):
+#   LMG (1.3k hours) achieves comparable Destylizer performance to
+#   Emilia (50k hours), showing that a small, style-diverse curated
+#   dataset is more effective than massive but less diverse data.
+
+name: "lmg"
+
+# Directory paths
+root_dir: "data/raw/lmg"
+processed_dir: "data/processed/lmg"
+features_dir: "data/features/lmg"
+
+# Audio settings
+sample_rate: 16000
+
+# Component datasets
+# Each contributes different style diversity to the combined corpus
+components:
+  libritts:
+    name: "libritts"
+    root_dir: "data/raw/libritts"
+    hours: 585
+    description: "Multi-speaker read speech (neutral prosody, diverse speakers)"
+    source: "https://www.openslr.org/60/"
+    availability: "fully open"
+
+  msp_podcast:
+    name: "msp_podcast"
+    root_dir: "data/raw/msp_podcast"
+    hours: 400  # approximate, several hundred hours
+    description: "Emotional speech from podcast recordings"
+    source: "https://ecs.utdallas.edu/research/researchlabs/msp-lab/MSP-Podcast.html"
+    availability: "research license required (UTDallas)"
+
+  globe:
+    name: "globe"
+    root_dir: "data/raw/globe"
+    hours: 315  # approximate, several hundred hours
+    description: "Accented English speech (multiple L1 backgrounds)"
+    source: "paper-referenced collection"
+    availability: "research access"
+
+# Combined dataset statistics
+total_hours: 1300  # approximate sum of components
+
+# Pipeline usage
+# - destylizer: HuBERT + Conformer + FSQ, trained for 100k steps with ASR loss
+use_for:
+  - "destylizer"

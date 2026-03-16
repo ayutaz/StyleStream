@@ -1,0 +1,34 @@
+# LibriTTS dataset configuration
+# Multi-speaker English corpus derived from LibriVox audiobooks
+# Used for vocoder training and evaluation
+# Source: https://www.openslr.org/60/
+
+name: "libritts"
+
+# Directory paths
+root_dir: "data/raw/libritts"
+processed_dir: "data/processed/libritts"
+features_dir: "data/features/libritts"
+
+# Audio settings
+sample_rate: 16000          # Target sample rate for StyleStream pipeline
+original_sample_rate: 24000 # Native LibriTTS sample rate
+
+# Available subsets
+subsets:
+  - "train-clean-100"
+  - "train-clean-360"
+  - "train-other-500"
+  - "dev-clean"
+  - "dev-other"
+  - "test-clean"
+
+# Dataset statistics
+total_hours: 585
+
+# Pipeline usage
+# - vocoder: Causal Vocos training (warm-started from official checkpoint)
+# - evaluation: LibriTTS-test-clean used as part of StyleStream-Test source
+use_for:
+  - "vocoder"
+  - "evaluation"

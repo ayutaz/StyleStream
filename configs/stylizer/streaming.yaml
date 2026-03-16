@@ -1,0 +1,40 @@
+# @package _global_
+# StyleStream Stylizer — Streaming (chunked-causal) training config
+# Warm-starts from the offline checkpoint, then fine-tunes with causal attention.
+
+defaults:
+  - offline            # inherit all offline settings
+  - _self_
+
+# ── DiT overrides for streaming ───────────────────────────────────
+dit:
+  attention_type: "chunked_causal"  # causal across chunks, full within chunk
+  chunk_size_ms: 600                # 600 ms → 30 frames at 50 Hz
+  chunk_size_frames: 30
+  causal_lookahead: 0               # strictly causal — no future context
+
+# ── Warm start from offline checkpoint ────────────────────────────
+warm_start:
+  enabled: true
+  checkpoint: null      # set via CLI: +warm_start.checkpoint=/path/to/offline.ckpt
+  load_style_encoder: true
+  load_dit: true
+  strict: false         # attention projection shapes may differ
+
+# ── CFM — fewer steps acceptable at streaming inference ───────────
+cfm:
+  nfe: 8                # reduced for lower latency; quality trade-off minimal
+
+# ── Streaming-specific training ───────────────────────────────────
+training:
+  steps: 100000         # shorter schedule — warm-started
+  batch_size: 64
+  num_gpus: 8
+  peak_lr: 5.0e-5       # lower LR for fine-tuning
+  warmup_steps: 1000
+  segment_length: 6     # same crop length; chunked internally
+
+# ── Destylizer input mode ─────────────────────────────────────────
+destylizer:
+  mode: "streaming"     # use streaming (causal) destylizer outputs
+  checkpoint: null      # set via CLI: +destylizer.checkpoint=/path/to/streaming_dest.ckpt
