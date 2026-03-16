@@ -11,7 +11,7 @@ StyleStreamはUC Berkeley Speech Groupによるリアルタイムゼロショッ
 
 ## 現在の状態
 
-フェーズ0（プロジェクト基盤構築）完了。メインパッケージ `stylestream/` にモデル・学習・評価の基盤コードが整備済み。フェーズ1（データ前処理パイプライン）に着手可能。
+フェーズ0（プロジェクト基盤構築）・フェーズ1（データ前処理パイプライン）完了。データダウンロード・リサンプリング・メル計算・HuBERT特徴量抽出・全3データセット対応が整備済み。次はフェーズ2（Destylizer実装: Conformer + FSQ + ASRデコーダ）。
 
 ## アーキテクチャ（論文より）
 
@@ -39,32 +39,33 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
 ## リポジトリ構造
 
 - `stylestream/` — メインPythonパッケージ
-  - `config.py` — 全構造化設定dataclass（AudioConfig, MelConfig, Destylizer/Stylizer/VocoderConfig等）
-  - `destylizer/` — Destylizerモジュール（Conformer + FSQ + ASRデコーダ）
-  - `stylizer/` — Stylizerモジュール（DiT + CFM + スタイルエンコーダ）
-  - `vocoder/` — ボコーダモジュール（Causal Vocos）
+  - `config.py` — 全構造化設定dataclass
+  - `destylizer/__init__.py` — Destylizerモジュール（モデル実装はPhase2）
+  - `stylizer/__init__.py` — Stylizerモジュール（モデル実装はPhase3）
+  - `vocoder/__init__.py` — ボコーダモジュール（モデル実装はPhase4）
   - `data/` — データ前処理・ローダー
-  - `utils/` — 共通ユーティリティ
-    - `mel.py` — MelSpectrogramTransform（100ビン, hop 320, 50Hz）
-    - `audio.py` — オーディオI/O（load/save/resample/segment）
-    - `logging.py` — ロギング設定（分散学習対応）
-    - `checkpoint.py` — CheckpointManager（safetensors + torch）
-    - `hub.py` — 外部モデル管理（HuBERT, WavLM, Vocos等7モデル）
-  - `training/` — 学習基盤
-    - `trainer.py` — BaseTrainer（accelerate, step-based, DDP/FSDP）
-    - `scheduler.py` — CosineAnnealingWarmup
-    - `distributed.py` — 分散学習ユーティリティ
+    - `manifest.py` — Manifest/Utterance、LibriTTS/ESD/GLOBE対応
+    - `preprocessing.py` — リサンプリング+メル計算パイプライン
+    - `hubert_extractor.py` — HuBERT L18特徴量抽出（GPU）
+    - `text.py` — CTC用CharTokenizer（30トークン）
+    - `destylizer_dataset.py` — DestylizerDataset+BucketBatchSampler
+    - `stylizer_dataset.py` — StylizerDataset（6秒,マスク,CFG）
+    - `vocoder_dataset.py` — VocoderDataset（2秒,アライメント）
+  - `utils/` — 共通ユーティリティ（mel.py, audio.py, logging.py, checkpoint.py, hub.py）
+  - `training/` — 学習基盤（trainer.py, scheduler.py, distributed.py）
   - `eval/` — 評価パイプライン
   - `inference/` — 推論パイプライン
-- `configs/` — Hydra YAML設定ファイル
-  - `destylizer/` — offline.yaml, streaming.yaml
-  - `stylizer/` — offline.yaml, streaming.yaml
-  - `vocoder/` — causal_vocos.yaml
-  - `data/` — libritts.yaml, emilia.yaml, lmg.yaml
-  - `eval/` — stylestream_test.yaml
+- `configs/` — YAML設定ファイル（destylizer, stylizer, vocoder, data, eval）
 - `scripts/` — エントリーポイントスクリプト
-- `tests/` — テスト（pytest）
+  - `download_libritts.py`, `download_esd.py`, `download_globe.py` — データセットダウンロード
+  - `download_models.py` — 事前学習モデルダウンロード
+  - `preprocess_data.py` — 前処理CLI（実装済み）
+  - `validate_features.py` — 特徴量検証（実装済み）
+  - `train_destylizer.py`, `train_stylizer.py`, `train_vocoder.py` — 学習スクリプト（スタブ）
+  - `evaluate.py`, `inference.py` — 評価・推論（スタブ）
+- `tests/` — 114テスト（mel, audio, text, manifest, datasets）
 - `docs/` — 静的デモWebサイト + 論文分析 + マイルストーン
+- `pyproject.toml`, `CLAUDE.md`, `README.md`, `LICENSE`, `.gitignore`
 
 ## 開発環境
 
@@ -80,13 +81,20 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
 # 環境構築
 uv sync --extra train --extra eval --extra dev
 
-# テスト
+# データセットダウンロード
+uv run python scripts/download_libritts.py --output-dir data/raw/libritts
+uv run python scripts/download_esd.py --output-dir data/raw/esd
+
+# 前処理
+uv run python scripts/preprocess_data.py --manifest data/manifests/libritts.csv --output-dir data/processed
+
+# 特徴量検証
+uv run python scripts/validate_features.py --manifest data/manifests/libritts.csv --processed-dir data/processed
+
+# テスト (114件)
 uv run pytest tests/ -v
 
 # モデルダウンロード
 uv run python scripts/download_models.py --stage train
 uv run python scripts/download_models.py --list
-
-# 学習（未実装、スタブのみ）
-uv run python scripts/train_destylizer.py --help
 ```
