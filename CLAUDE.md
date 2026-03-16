@@ -11,7 +11,7 @@ StyleStreamはUC Berkeley Speech Groupによるリアルタイムゼロショッ
 
 ## 現在の状態
 
-フェーズ0（プロジェクト基盤構築）・フェーズ1（データ前処理パイプライン）・フェーズ2（Destylizer実装）・フェーズ3（Stylizer / DiT実装）・フェーズ4（Vocoder: Causal Vocos実装）完了。ALiBi付きConformer×6、FSQ [5,3,3]、CTC/seq2seq ASRデコーダ、学習パイプライン、推論API実装済み。16層DiT、CFM、adaLN-Zero、WavLM-TDNNスタイルエンコーダ、CFG実装済み。Causal Vocos（ConvNeXt×8 + ISTFT + GAN学習）実装済み。次はフェーズ5（ストリーミング対応）。
+フェーズ0〜5完了。ALiBi付きConformer×6、FSQ [5,3,3]、CTC/seq2seq ASRデコーダ、学習パイプライン、推論API実装済み。16層DiT、CFM、adaLN-Zero、WavLM-TDNNスタイルエンコーダ、CFG実装済み。Causal Vocos（ConvNeXt×8 + ISTFT + GAN学習）実装済み。チャンク因果注意、KVキャッシュ、StreamingHuBERT、MSE蒸留、ストリーミング推論パイプライン実装済み。次はフェーズ6（評価パイプライン）。
 
 ## アーキテクチャ（論文より）
 
@@ -75,6 +75,16 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
     - `destylizer_dataset.py` — DestylizerDataset+BucketBatchSampler
     - `stylizer_dataset.py` — StylizerDataset（6秒,マスク,CFG）
     - `vocoder_dataset.py` — VocoderDataset（2秒,アライメント）
+  - `streaming/` — ストリーミングモジュール（実装済み）
+    - `attention_mask.py` — チャンク因果マスク生成（ブロック下三角 + ALiBi統合）
+    - `chunked_attention.py` — チャンク因果MHA（学習/推論、ALiBi/RoPE対応）
+    - `kv_cache.py` — KVキャッシュ（LayerKVCache, MultiLayerKVCache）
+    - `hubert_causal.py` — StreamingHuBERT（因果CNN + チャンク因果注意）
+    - `destylizer.py` — StreamingDestylizer（HuBERT射影 + 因果Conformer）
+    - `stylizer.py` — StreamingDiT/StreamingStylizer（チャンク因果DiT）
+    - `ring_buffer.py` — RingBuffer + StreamingContext（FIFO 250フレーム）
+    - `pipeline.py` — StreamingInferencePipeline（E2E チャンク変換）
+    - `distillation.py` — DistillationTrainer（MSE蒸留、差分LR）
   - `utils/` — 共通ユーティリティ（mel.py, audio.py, logging.py, checkpoint.py, hub.py）
   - `training/` — 学習基盤（trainer.py, scheduler.py, distributed.py）
   - `eval/` — 評価パイプライン
@@ -88,8 +98,11 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
   - `train_destylizer.py` — Destylizer学習CLI（実装済み）
   - `train_stylizer.py` — Stylizer学習CLI（実装済み）
   - `train_vocoder.py` — Vocoder学習CLI（実装済み）
+  - `train_streaming_destylizer.py` — MSE蒸留学習CLI（実装済み）
+  - `train_streaming_stylizer.py` — ストリーミングStylizer学習CLI（実装済み）
+  - `streaming_inference.py` — ストリーミング推論デモ（実装済み）
   - `evaluate.py`, `inference.py` — 評価・推論（スタブ）
-- `tests/` — 412テスト（mel, audio, text, manifest, datasets, conformer, fsq, asr_head, destylizer_model, rope, timestep_embedding, adaln_zero, dit, style_encoder, cfm, cfg, stylizer_model, vocoder_components, vocoder_model）
+- `tests/` — 461テスト（mel, audio, text, manifest, datasets, conformer, fsq, asr_head, destylizer_model, rope, timestep_embedding, adaln_zero, dit, style_encoder, cfm, cfg, stylizer_model, vocoder_components, vocoder_model, streaming_attention, streaming_models）
 - `docs/` — 静的デモWebサイト + 論文分析 + マイルストーン
 - `pyproject.toml`, `CLAUDE.md`, `README.md`, `LICENSE`, `.gitignore`
 
@@ -117,7 +130,7 @@ uv run python scripts/preprocess_data.py --manifest data/manifests/libritts.csv 
 # 特徴量検証
 uv run python scripts/validate_features.py --manifest data/manifests/libritts.csv --processed-dir data/processed
 
-# テスト (412件)
+# テスト (461件)
 uv run pytest tests/ -v
 
 # Destylizer学習
@@ -128,6 +141,15 @@ uv run python scripts/train_stylizer.py --config configs/stylizer/offline.yaml
 
 # Vocoder学習
 uv run python scripts/train_vocoder.py --config configs/vocoder/causal_vocos.yaml
+
+# ストリーミングDestylizer蒸留学習
+uv run python scripts/train_streaming_destylizer.py --config configs/streaming/distillation.yaml
+
+# ストリーミングStylizer学習
+uv run python scripts/train_streaming_stylizer.py --config configs/streaming/stylizer.yaml
+
+# ストリーミング推論
+uv run python scripts/streaming_inference.py --source source.wav --target target.wav --output converted.wav
 
 # モデルダウンロード
 uv run python scripts/download_models.py --stage train
