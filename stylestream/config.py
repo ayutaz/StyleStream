@@ -223,9 +223,27 @@ class DataConfig:
 @dataclass
 class EvalConfig:
     metrics: List[str] = field(
-        default_factory=lambda: ["wer", "cer", "speaker_sim", "mos"]
+        default_factory=lambda: ["wer", "cer", "s_sim", "a_sim", "e_sim", "utmos"]
     )
     batch_size: int = 16
+    device: str = "cuda"
+    output_dir: str = "eval_results"
+    # StyleStream-Test dataset
+    test_manifest: str = ""
+    pairs_csv: str = ""
+    converted_dir: str = ""  # directory for batch inference outputs
+    # Checkpoint paths
+    destylizer_checkpoint: str = ""
+    stylizer_checkpoint: str = ""
+    vocoder_checkpoint: str = ""
+    # Inference
+    use_streaming: bool = False
+    nfe: int = 16
+    cfg_strength: float = 2.0
+    # Probing
+    probing_features_dir: str = ""
+    probing_num_epochs: int = 20
+    probing_lr: float = 1e-3
 
 
 # ---------------------------------------------------------------------------

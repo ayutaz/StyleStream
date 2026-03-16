@@ -27,6 +27,7 @@ train = [
 eval = [
     "resemblyzer",
     "jiwer",
+    "matplotlib>=3.7",
 ]
 dev = [
     "pytest",
