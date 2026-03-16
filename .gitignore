@@ -7,7 +7,7 @@ build/
 .env
 *.pt
 *.safetensors
-data/
+/data/
 outputs/
 wandb/
 .pytest_cache/
