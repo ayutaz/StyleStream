@@ -1,0 +1,34 @@
+# @package _global_
+# StyleStream Streaming Destylizer — MSE distillation config
+
+defaults:
+  - _self_
+
+distillation:
+  teacher_checkpoint: "checkpoints/destylizer/best"
+  student_init_checkpoint: ""
+  hubert_lr_scale: 0.1
+  aux_asr_weight: 0.0
+  chunk_size: 30
+
+training:
+  steps: 100000
+  batch_size: 32
+  num_gpus: 8
+  peak_lr: 1.0e-4
+  warmup_steps: 4000
+  scheduler: "cosine_annealing"
+  gradient_clip: 1.0
+  mixed_precision: "bf16"
+  log_interval: 100
+  save_interval: 10000
+  val_interval: 2000
+  seed: 42
+
+data:
+  name: "lmg"
+  manifest_path: "data/manifests/lmg.csv"
+  audio_dir: "data/processed/audio"
+  hubert_features_dir: "data/processed/hubert"
+  val_manifest_path: ""
+  num_workers: 4

@@ -1,0 +1,48 @@
+# @package _global_
+# StyleStream Streaming Stylizer training config
+
+defaults:
+  - _self_
+
+streaming:
+  chunk_size_ms: 600
+  chunk_size_frames: 30
+  max_cache_frames: 250
+
+dit:
+  num_layers: 16
+  hidden_size: 768
+  ffn_size: 3072
+
+style_encoder:
+  model_id: "microsoft/wavlm-base-plus-sv"
+
+cfm:
+  nfe: 16
+
+cfg:
+  strength: 2.0
+  content_drop: 0.2
+  context_drop: 0.3
+  style_drop: 0.3
+
+training:
+  steps: 400000
+  batch_size: 64
+  num_gpus: 8
+  peak_lr: 1.0e-4
+  warmup_steps: 2000
+  scheduler: "cosine_annealing"
+  gradient_clip: 1.0
+  mixed_precision: "bf16"
+  log_interval: 100
+  save_interval: 10000
+  val_interval: 5000
+  seed: 42
+
+data:
+  name: "emilia_en"
+  manifest_path: "data/manifests/emilia.csv"
+  mel_dir: "data/processed/mel"
+  content_features_dir: "data/processed/streaming_content_features"
+  val_manifest_path: ""

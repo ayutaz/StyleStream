@@ -187,10 +187,25 @@ class TrainingConfig:
 # ---------------------------------------------------------------------------
 
 @dataclass
+class DistillationConfig:
+    """Config for streaming Destylizer MSE distillation training."""
+    teacher_checkpoint: str = ""
+    student_init_checkpoint: str = ""
+    hubert_lr_scale: float = 0.1
+    aux_asr_weight: float = 0.0
+    chunk_size: int = 30
+
+
+@dataclass
 class StreamingConfig:
     chunk_size_ms: int = 600
+    chunk_size_frames: int = 30
     target_length_s: float = 5.0  # causal attention target window
     ring_buffer_s: float = 5.0  # ring-buffer context for vocoder
+    max_cache_frames: int = 250
+    nfe: int = 16
+    cfg_strength: float = 2.0
+    distillation: DistillationConfig = field(default_factory=DistillationConfig)
 
 
 # ---------------------------------------------------------------------------
