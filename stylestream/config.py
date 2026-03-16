@@ -123,13 +123,42 @@ class StylizerConfig:
 
 
 # ---------------------------------------------------------------------------
-# Vocoder
+# Vocoder sub-configs
 # ---------------------------------------------------------------------------
 
 @dataclass
+class VocoderBackboneConfig:
+    hidden_size: int = 512
+    num_layers: int = 8
+    intermediate_size: int = 1536
+    kernel_size: int = 7
+    causal: bool = True
+
+
+@dataclass
+class VocoderDiscriminatorConfig:
+    type: str = "multi_scale"
+    scales: List[int] = field(default_factory=lambda: [1, 2, 4])
+    channels: int = 64
+
+
+@dataclass
+class VocoderLossConfig:
+    reconstruction: float = 45.0
+    gan_generator: float = 1.0
+    gan_discriminator: float = 1.0
+    feature_matching: float = 2.0
+
+
+@dataclass
 class VocoderConfig:
-    init_checkpoint: str = "gemelo-ai/vocos"
-    causal: bool = True  # causal ConvNext variant for streaming
+    backbone: VocoderBackboneConfig = field(default_factory=VocoderBackboneConfig)
+    discriminator: VocoderDiscriminatorConfig = field(
+        default_factory=VocoderDiscriminatorConfig,
+    )
+    loss: VocoderLossConfig = field(default_factory=VocoderLossConfig)
+    init_checkpoint: str = "charactr/vocos-mel-24khz"
+    causal: bool = True
 
 
 # ---------------------------------------------------------------------------
