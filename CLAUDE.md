@@ -11,7 +11,7 @@ StyleStreamはUC Berkeley Speech Groupによるリアルタイムゼロショッ
 
 ## 現在の状態
 
-フェーズ0（プロジェクト基盤構築）・フェーズ1（データ前処理パイプライン）・フェーズ2（Destylizer実装）・フェーズ3（Stylizer / DiT実装）完了。ALiBi付きConformer×6、FSQ [5,3,3]、CTC/seq2seq ASRデコーダ、学習パイプライン、推論API実装済み。16層DiT、CFM、adaLN-Zero、WavLM-TDNNスタイルエンコーダ、CFG実装済み。次はフェーズ4（Vocoder: Causal Vocos実装）。
+フェーズ0（プロジェクト基盤構築）・フェーズ1（データ前処理パイプライン）・フェーズ2（Destylizer実装）・フェーズ3（Stylizer / DiT実装）・フェーズ4（Vocoder: Causal Vocos実装）完了。ALiBi付きConformer×6、FSQ [5,3,3]、CTC/seq2seq ASRデコーダ、学習パイプライン、推論API実装済み。16層DiT、CFM、adaLN-Zero、WavLM-TDNNスタイルエンコーダ、CFG実装済み。Causal Vocos（ConvNeXt×8 + ISTFT + GAN学習）実装済み。次はフェーズ5（ストリーミング対応）。
 
 ## アーキテクチャ（論文より）
 
@@ -58,7 +58,15 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
     - `cfg.py` — Classifier-Free Guidance（3条件ドロップ, ガイダンスα=2）
     - `model.py` — Stylizer統合モデル
     - `trainer.py` — StylizerTrainer（BaseTrainer拡張）
-  - `vocoder/__init__.py` — ボコーダモジュール（モデル実装はPhase4）
+  - `vocoder/` — Vocoderモジュール（実装済み）
+    - `causal_conv.py` — 因果的畳み込みプリミティブ（CausalConv1d）
+    - `convnext.py` — ConvNeXt V2ブロック（因果的深さ方向分離畳み込み）
+    - `backbone.py` — VocosBackbone（入力埋め込み + ConvNeXt×8）
+    - `istft_head.py` — ISTFT波形生成ヘッド（振幅・位相予測）
+    - `model.py` — CausalVocos統合モデル（ウォームスタート対応）
+    - `discriminator.py` — MultiScaleDiscriminator（3スケールGAN判別器）
+    - `losses.py` — VocoderLoss（LS-GAN + メル再構成 + 特徴マッチング）
+    - `trainer.py` — VocoderTrainer（GAN学習ループ、G/D交互更新）
   - `data/` — データ前処理・ローダー
     - `manifest.py` — Manifest/Utterance、LibriTTS/ESD/GLOBE対応
     - `preprocessing.py` — リサンプリング+メル計算パイプライン
@@ -79,9 +87,9 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
   - `validate_features.py` — 特徴量検証（実装済み）
   - `train_destylizer.py` — Destylizer学習CLI（実装済み）
   - `train_stylizer.py` — Stylizer学習CLI（実装済み）
-  - `train_vocoder.py` — 学習スクリプト（スタブ）
+  - `train_vocoder.py` — Vocoder学習CLI（実装済み）
   - `evaluate.py`, `inference.py` — 評価・推論（スタブ）
-- `tests/` — 355テスト（mel, audio, text, manifest, datasets, conformer, fsq, asr_head, destylizer_model, rope, timestep_embedding, adaln_zero, dit, style_encoder, cfm, cfg, stylizer_model）
+- `tests/` — 412テスト（mel, audio, text, manifest, datasets, conformer, fsq, asr_head, destylizer_model, rope, timestep_embedding, adaln_zero, dit, style_encoder, cfm, cfg, stylizer_model, vocoder_components, vocoder_model）
 - `docs/` — 静的デモWebサイト + 論文分析 + マイルストーン
 - `pyproject.toml`, `CLAUDE.md`, `README.md`, `LICENSE`, `.gitignore`
 
@@ -109,7 +117,7 @@ uv run python scripts/preprocess_data.py --manifest data/manifests/libritts.csv 
 # 特徴量検証
 uv run python scripts/validate_features.py --manifest data/manifests/libritts.csv --processed-dir data/processed
 
-# テスト (355件)
+# テスト (412件)
 uv run pytest tests/ -v
 
 # Destylizer学習
@@ -117,6 +125,9 @@ uv run python scripts/train_destylizer.py --config configs/destylizer/offline.ya
 
 # Stylizer学習
 uv run python scripts/train_stylizer.py --config configs/stylizer/offline.yaml
+
+# Vocoder学習
+uv run python scripts/train_vocoder.py --config configs/vocoder/causal_vocos.yaml
 
 # モデルダウンロード
 uv run python scripts/download_models.py --stage train
