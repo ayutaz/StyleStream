@@ -11,7 +11,7 @@ StyleStreamはUC Berkeley Speech Groupによるリアルタイムゼロショッ
 
 ## 現在の状態
 
-フェーズ0〜5完了。ALiBi付きConformer×6、FSQ [5,3,3]、CTC/seq2seq ASRデコーダ、学習パイプライン、推論API実装済み。16層DiT、CFM、adaLN-Zero、WavLM-TDNNスタイルエンコーダ、CFG実装済み。Causal Vocos（ConvNeXt×8 + ISTFT + GAN学習）実装済み。チャンク因果注意、KVキャッシュ、StreamingHuBERT、MSE蒸留、ストリーミング推論パイプライン実装済み。次はフェーズ6（評価パイプライン）。
+フェーズ0〜6完了。全コンポーネント実装済み。ALiBi付きConformer×6、FSQ [5,3,3]、CTC/seq2seq ASRデコーダ、学習パイプライン、推論API実装済み。16層DiT、CFM、adaLN-Zero、WavLM-TDNNスタイルエンコーダ、CFG実装済み。Causal Vocos（ConvNeXt×8 + ISTFT + GAN学習）実装済み。チャンク因果注意、KVキャッシュ、StreamingHuBERT、MSE蒸留、ストリーミング推論パイプライン実装済み。評価パイプライン（Whisper WER/CER、Resemblyzer S-SIM、ECAPA A-SIM、emotion2vec E-SIM、UTMOS、プロービング、バッチ推論、集計・可視化）実装済み。次は学習実行とチューニング。
 
 ## アーキテクチャ（論文より）
 
@@ -87,7 +87,19 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
     - `distillation.py` — DistillationTrainer（MSE蒸留、差分LR）
   - `utils/` — 共通ユーティリティ（mel.py, audio.py, logging.py, checkpoint.py, hub.py）
   - `training/` — 学習基盤（trainer.py, scheduler.py, distributed.py）
-  - `eval/` — 評価パイプライン
+  - `eval/` — 評価パイプライン（実装済み）
+    - `base.py` — BaseEvaluator/SimilarityEvaluator抽象基底（遅延ロード、コンテキストマネージャ）
+    - `registry.py` — 評価メトリクスレジストリ（遅延インポート、エイリアス対応）
+    - `whisper_evaluator.py` — Whisper-large-v3 WER/CER評価
+    - `resemblyzer_evaluator.py` — Resemblyzer話者類似度（S-SIM）
+    - `accent_evaluator.py` — ECAPA-TDNNアクセント類似度（A-SIM）
+    - `emotion_evaluator.py` — emotion2vec感情類似度（E-SIM）
+    - `utmos_evaluator.py` — UTMOS MOS予測
+    - `dataset.py` — StyleStream-Testデータセット（3000ペア構築、フィルタリング）
+    - `batch_inference.py` — バッチ変換パイプライン（オフライン/ストリーミング、リジューム対応）
+    - `aggregator.py` — メトリクス集計（カテゴリ別統計、95%CI、Markdown/LaTeX/JSON出力）
+    - `visualization.py` — レーダーチャート、棒グラフ、ヒートマップ、HTMLレポート
+    - `probing.py` — 線形プロービング（話者/アクセント/感情スタイル漏洩分析）
   - `inference/` — 推論パイプライン
 - `configs/` — YAML設定ファイル（destylizer, stylizer, vocoder, data, eval）
 - `scripts/` — エントリーポイントスクリプト
@@ -101,8 +113,9 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
   - `train_streaming_destylizer.py` — MSE蒸留学習CLI（実装済み）
   - `train_streaming_stylizer.py` — ストリーミングStylizer学習CLI（実装済み）
   - `streaming_inference.py` — ストリーミング推論デモ（実装済み）
-  - `evaluate.py`, `inference.py` — 評価・推論（スタブ）
-- `tests/` — 461テスト（mel, audio, text, manifest, datasets, conformer, fsq, asr_head, destylizer_model, rope, timestep_embedding, adaln_zero, dit, style_encoder, cfm, cfg, stylizer_model, vocoder_components, vocoder_model, streaming_attention, streaming_models）
+  - `evaluate.py` — 評価CLI（メトリクス選択、論文ベースライン比較、可視化）（実装済み）
+  - `inference.py` — 推論CLI（単一/バッチ、オフライン/ストリーミング）（実装済み）
+- `tests/` — 568テスト（mel, audio, text, manifest, datasets, conformer, fsq, asr_head, destylizer_model, rope, timestep_embedding, adaln_zero, dit, style_encoder, cfm, cfg, stylizer_model, vocoder_components, vocoder_model, streaming_attention, streaming_models, eval_pipeline）
 - `docs/` — 静的デモWebサイト + 論文分析 + マイルストーン
 - `pyproject.toml`, `CLAUDE.md`, `README.md`, `LICENSE`, `.gitignore`
 
