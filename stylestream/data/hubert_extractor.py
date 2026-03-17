@@ -255,8 +255,9 @@ class HuBERTExtractor:
 
         Each file is loaded, and then all waveforms are zero-padded to the
         maximum length in the batch for a single batched forward pass.  If
-        any waveform exceeds *max_audio_samples* it is handled individually
-        via :meth:`extract_single` instead.
+        any waveform exceeds *max_audio_samples* it is split into
+        overlapping chunks which are then batched together for efficient
+        GPU utilisation (instead of falling back to sequential processing).
 
         On CUDA OOM, the batch is automatically halved and retried.
 
@@ -289,9 +290,9 @@ class HuBERTExtractor:
 
         results: list[torch.Tensor | None] = [None] * len(waveforms)
 
-        # Handle long waveforms one-by-one (they already use chunking).
-        for i in long_indices:
-            results[i] = self.extract_single(audio_paths[i])
+        # Handle long waveforms by chunking and batching the chunks.
+        if long_indices:
+            self._extract_long_batched(waveforms, long_indices, results)
 
         # Handle short waveforms in a padded batch.
         if short_indices:
@@ -497,6 +498,71 @@ class HuBERTExtractor:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _extract_long_batched(
+        self,
+        waveforms: list[torch.Tensor],
+        long_indices: list[int],
+        results: list[torch.Tensor | None],
+    ) -> None:
+        """Chunk long waveforms and process all chunks in batches.
+
+        Instead of falling back to sequential ``extract_single`` for each
+        long waveform, this method splits every long waveform into
+        overlapping chunks, collects all chunks across all long files,
+        processes them in batches via :meth:`_batched_forward`, and then
+        reassembles the per-file features with proper overlap trimming.
+
+        Parameters
+        ----------
+        waveforms:
+            Full list of loaded waveforms (indexed by *long_indices*).
+        long_indices:
+            Indices into *waveforms* that exceed *max_audio_samples*.
+        results:
+            Mutable output list; entries at *long_indices* are filled in.
+        """
+        # Build a flat list of all chunks and record provenance.
+        all_chunks: list[torch.Tensor] = []
+        # Each entry: (index_in_long_indices, chunk_index, total_chunks)
+        chunk_info: list[tuple[int, int, int]] = []
+
+        for li_pos, wav_idx in enumerate(long_indices):
+            wav = waveforms[wav_idx]
+            chunks = self._split_with_overlap(wav)
+            for c_idx, chunk in enumerate(chunks):
+                all_chunks.append(chunk)
+                chunk_info.append((li_pos, c_idx, len(chunks)))
+
+        # Process all chunks in batches (reuses OOM-retry logic).
+        all_feats = self._batched_forward(all_chunks)
+
+        # Reassemble per-file features.
+        # Group features by their source file.
+        per_file_feats: list[list[torch.Tensor]] = [[] for _ in long_indices]
+        for feat, (li_pos, c_idx, n_chunks) in zip(all_feats, chunk_info):
+            # Trim overlap frames from interior chunks.
+            overlap_frames = _expected_frames(_CHUNK_OVERLAP_SAMPLES)
+            if c_idx > 0:
+                feat = feat[:, overlap_frames:]
+            if c_idx < n_chunks - 1:
+                feat = feat[:, :-overlap_frames]
+            per_file_feats[li_pos].append(feat)
+
+        # Concatenate and trim/pad to expected length.
+        for li_pos, wav_idx in enumerate(long_indices):
+            concatenated = torch.cat(per_file_feats[li_pos], dim=1)
+            total_samples = waveforms[wav_idx].shape[0]
+            expected_t = _expected_frames(total_samples)
+            current_t = concatenated.shape[1]
+            if current_t > expected_t:
+                concatenated = concatenated[:, :expected_t]
+            elif current_t < expected_t:
+                pad = torch.zeros(
+                    768, expected_t - current_t, dtype=concatenated.dtype
+                )
+                concatenated = torch.cat([concatenated, pad], dim=1)
+            results[wav_idx] = concatenated
+
     def _extract_chunk(self, waveform: torch.Tensor) -> torch.Tensor:
         """Run a single waveform through HuBERT and return features on CPU.
 
@@ -512,7 +578,7 @@ class HuBERTExtractor:
         """
         assert self._extract_fn is not None
         batch = waveform.unsqueeze(0)  # (1, samples)
-        with torch.no_grad():
+        with torch.inference_mode():
             feat = self._extract_fn(batch)  # (1, 768, T) on self.device
         return feat.squeeze(0).cpu()  # (768, T)
 
@@ -622,7 +688,7 @@ class HuBERTExtractor:
         for i, w in enumerate(waveforms):
             padded[i, : w.shape[0]] = w
 
-        with torch.no_grad():
+        with torch.inference_mode():
             batch_feat = self._extract_fn(padded)  # (B, 768, T_max)
 
         batch_feat = batch_feat.cpu()

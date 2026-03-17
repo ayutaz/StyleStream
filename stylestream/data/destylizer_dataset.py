@@ -322,7 +322,10 @@ class BucketBatchSampler(Sampler[list[int]]):
         if self.shuffle:
             random.shuffle(bucket_order)
         for idx in bucket_order:
-            yield self.buckets[idx]
+            bucket = list(self.buckets[idx])  # copy
+            if self.shuffle:
+                random.shuffle(bucket)  # shuffle within bucket too
+            yield bucket
 
     def __len__(self) -> int:
         return len(self.buckets)
@@ -338,9 +341,10 @@ def build_destylizer_dataloader(
     features_dir: str | Path,
     tokenizer=None,
     batch_size: int = 32,
-    num_workers: int = 4,
+    num_workers: int = 8,
     shuffle: bool = True,
     max_frames: int = 3000,
+    prefetch_factor: int = 4,
 ) -> DataLoader:
     """Build a complete :class:`DataLoader` for Destylizer training.
 
@@ -383,11 +387,14 @@ def build_destylizer_dataloader(
         shuffle=shuffle,
     )
 
-    return DataLoader(
-        dataset,
+    loader_kwargs: dict = dict(
         batch_sampler=sampler,
         num_workers=num_workers,
         collate_fn=DestylizerCollator(),
         pin_memory=True,
         persistent_workers=num_workers > 0,
     )
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = prefetch_factor
+
+    return DataLoader(dataset, **loader_kwargs)

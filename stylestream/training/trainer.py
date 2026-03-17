@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -20,10 +21,122 @@ from torch.utils.data import DataLoader
 from stylestream.utils.logging import log_metrics, setup_logger
 
 
+# ======================================================================
+# Progressive training schedule
+# ======================================================================
+
+
+@dataclass
+class ProgressiveStage:
+    """A stage in progressive training.
+
+    Parameters
+    ----------
+    start_step :
+        Global step at which this stage becomes active.
+    segment_length :
+        Training segment length in seconds.
+    mask_ratio_min :
+        Lower bound for uniform mask ratio sampling.
+    mask_ratio_max :
+        Upper bound for uniform mask ratio sampling.
+    """
+
+    start_step: int
+    segment_length: float  # seconds
+    mask_ratio_min: float
+    mask_ratio_max: float
+
+
+class ProgressiveSchedule:
+    """Gradually increases training difficulty over the course of training.
+
+    The schedule is defined as a list of :class:`ProgressiveStage` instances,
+    each specifying the segment length and mask ratio range to use from a
+    given step onward.  The active stage is the last stage whose
+    ``start_step`` is <= the current global step.
+
+    When ``stages`` is not provided, a default 3-stage schedule is used:
+
+    * **Stage 1** (0 -- 25 % of training): 3 s segments, mask ratio 0.5--0.7
+    * **Stage 2** (25 % -- 50 %): 4.5 s segments, mask ratio 0.6--0.9
+    * **Stage 3** (50 % -- end): 6 s segments, mask ratio 0.7--1.0
+
+    Parameters
+    ----------
+    total_steps :
+        Total number of training steps (used to compute default stage
+        boundaries).
+    stages :
+        Explicit list of stages.  If ``None``, the default 3-stage schedule
+        is constructed from *total_steps*.
+    """
+
+    def __init__(
+        self,
+        total_steps: int,
+        stages: list[ProgressiveStage] | None = None,
+    ) -> None:
+        if stages is None:
+            s1 = int(total_steps * 0.25)
+            s2 = int(total_steps * 0.5)
+            self.stages = [
+                ProgressiveStage(0, 3.0, 0.5, 0.7),     # Easy: 3s, low mask
+                ProgressiveStage(s1, 4.5, 0.6, 0.9),    # Medium: 4.5s, med mask
+                ProgressiveStage(s2, 6.0, 0.7, 1.0),    # Hard: 6s, full mask
+            ]
+        else:
+            self.stages = stages
+
+    def get_stage(self, current_step: int) -> ProgressiveStage:
+        """Return the active stage for *current_step*.
+
+        The active stage is the last one whose ``start_step`` is
+        <= *current_step*.
+
+        Parameters
+        ----------
+        current_step :
+            The current global training step.
+
+        Returns
+        -------
+        ProgressiveStage
+            The stage that should be applied at this step.
+        """
+        active = self.stages[0]
+        for stage in self.stages:
+            if current_step >= stage.start_step:
+                active = stage
+        return active
+
+
 def _cycle(dataloader: DataLoader):
     """Yield batches from *dataloader* forever, cycling through epochs."""
     while True:
         yield from dataloader
+
+
+class EarlyStopping:
+    """Stop training when validation loss stops improving."""
+
+    def __init__(self, patience: int = 10, min_delta: float = 1e-4):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.best_loss: float = float("inf")
+        self.should_stop = False
+
+    def check(self, val_loss: float) -> bool:
+        """Returns True if training should stop."""
+        if val_loss < self.best_loss - self.min_delta:
+            self.best_loss = val_loss
+            self.counter = 0
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.should_stop = True
+        return self.should_stop
 
 
 class BaseTrainer(ABC):
@@ -49,6 +162,13 @@ class BaseTrainer(ABC):
     def __init__(self, config) -> None:
         self.config = config
 
+        # --- CUDA optimizations --------------------------------------------
+        if torch.cuda.is_available():
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.set_float32_matmul_precision("high")
+
         # --- Accelerator ---------------------------------------------------
         mixed_precision = getattr(config.training, "mixed_precision", "bf16")
         grad_accum = getattr(config.training, "gradient_accumulation_steps", 1)
@@ -69,6 +189,20 @@ class BaseTrainer(ABC):
         # --- Tracking state ------------------------------------------------
         self.global_step: int = 0
         self.best_val_loss: float = float("inf")
+
+        # --- Early stopping ------------------------------------------------
+        if getattr(config.training, "early_stopping", False):
+            patience = getattr(config.training, "early_stopping_patience", 10)
+            min_delta = getattr(config.training, "early_stopping_min_delta", 1e-4)
+            self.early_stopping: EarlyStopping | None = EarlyStopping(
+                patience=patience, min_delta=min_delta,
+            )
+            self.logger.info(
+                "Early stopping enabled (patience=%d, min_delta=%.1e)",
+                patience, min_delta,
+            )
+        else:
+            self.early_stopping = None
 
         # --- W&B -----------------------------------------------------------
         self._wandb_run = None
@@ -181,6 +315,11 @@ class BaseTrainer(ABC):
         self.optimizer = optimizer
         self.scheduler = scheduler
 
+        # 2b. Optional torch.compile ----------------------------------------
+        if getattr(self.config.training, "compile_model", False) and hasattr(torch, "compile"):
+            self.logger.info("Compiling model with torch.compile(mode='reduce-overhead')")
+            self.model = torch.compile(self.model, mode="reduce-overhead")
+
         # 3. Optionally resume from checkpoint ------------------------------
         if resume_from is not None:
             self.load_checkpoint(Path(resume_from))
@@ -257,6 +396,20 @@ class BaseTrainer(ABC):
                     if val_loss < self.best_val_loss:
                         self.best_val_loss = val_loss
                         self._save("best")
+
+                    # Early stopping check
+                    if (
+                        self.early_stopping is not None
+                        and self.early_stopping.check(val_loss)
+                    ):
+                        self.logger.info(
+                            "Early stopping triggered at step %d "
+                            "(no improvement for %d validations, best_val_loss=%.4f)",
+                            self.global_step,
+                            self.early_stopping.patience,
+                            self.early_stopping.best_loss,
+                        )
+                        break
 
             # --- Checkpointing ---------------------------------------------
             if save_interval > 0 and self.global_step % save_interval == 0:

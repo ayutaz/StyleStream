@@ -214,13 +214,13 @@ def load_hubert(
     logger.info("Loading HuBERT from %s (layer %d) ...", hf_id, layer)
 
     model = HubertModel.from_pretrained(hf_id)
-    model = model.to(device).eval()
+    model = model.to(device).eval().half()
 
     # Freeze all parameters
     for param in model.parameters():
         param.requires_grad = False
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def extract_fn(waveform: torch.Tensor) -> torch.Tensor:
         """Extract hidden states from *waveform*.
 
@@ -234,7 +234,7 @@ def load_hubert(
         torch.Tensor
             Shape ``(batch, 768, T)`` – hidden states at 50 Hz.
         """
-        waveform = waveform.to(device)
+        waveform = waveform.to(device=device, dtype=torch.float16)
         outputs = model(waveform, output_hidden_states=True)
         # outputs.hidden_states is a tuple of (num_layers + 1) tensors,
         # each of shape (batch, T, 768).

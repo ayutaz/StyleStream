@@ -133,9 +133,9 @@ class TestTDNNBlock:
     def test_output_shape(self) -> None:
         """Output should have the correct number of channels."""
         tdnn = TDNNBlock(in_channels=HIDDEN, out_channels=TDNN_CHANNELS, kernel_size=5, dilation=1)
-        x = torch.randn(B, 50, HIDDEN)  # (B, T, C)
+        x = torch.randn(B, HIDDEN, 50)  # (B, C, T) channels-first
         out = tdnn(x)
-        assert out.shape == (B, 50, TDNN_CHANNELS)
+        assert out.shape == (B, TDNN_CHANNELS, 50)
 
     def test_sequence_length_preserved(self) -> None:
         """Same-padding should preserve the temporal dimension."""
@@ -146,16 +146,16 @@ class TestTDNNBlock:
                 kernel_size=kernel,
                 dilation=dilation,
             )
-            x = torch.randn(B, 40, HIDDEN)
+            x = torch.randn(B, HIDDEN, 40)  # (B, C, T) channels-first
             out = tdnn(x)
-            assert out.shape[1] == 40, (
-                f"k={kernel}, d={dilation}: expected T=40, got T={out.shape[1]}"
+            assert out.shape[2] == 40, (
+                f"k={kernel}, d={dilation}: expected T=40, got T={out.shape[2]}"
             )
 
     def test_gradient_flow(self) -> None:
         """Gradients should propagate through the TDNN block."""
         tdnn = TDNNBlock(in_channels=HIDDEN, out_channels=TDNN_CHANNELS)
-        x = torch.randn(B, 30, HIDDEN, requires_grad=True)
+        x = torch.randn(B, HIDDEN, 30, requires_grad=True)  # (B, C, T) channels-first
         out = tdnn(x)
         loss = out.sum()
         loss.backward()

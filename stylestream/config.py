@@ -46,6 +46,7 @@ class ConformerConfig:
     positional_encoding: str = "ALiBi"
     kernel_size: int = 31
     num_heads: int = 12
+    gradient_checkpointing: bool = False
 
 
 @dataclass
@@ -108,6 +109,7 @@ class DiTConfig:
     num_layers: int = 16
     hidden_size: int = 768
     ffn_size: int = 3072
+    gradient_checkpointing: bool = False
 
 
 @dataclass
@@ -120,6 +122,7 @@ class StylizerConfig:
     mask_ratio_min: float = 0.7  # U[min, max] during training
     mask_ratio_max: float = 1.0
     adaln_zero: bool = True
+    progressive: bool = False  # Enable progressive training schedule
 
 
 # ---------------------------------------------------------------------------
@@ -172,14 +175,19 @@ class TrainingConfig:
     num_gpus: int = 8
     optimizer: str = "AdamW"
     peak_lr: float = 1e-4
+    min_lr: float = 0.0
     warmup_steps: int = 4000
     scheduler: str = "cosine_annealing"
     gradient_clip: float = 1.0
     gradient_accumulation_steps: int = 1
     mixed_precision: str = "bf16"
+    compile_model: bool = False  # Enable torch.compile for speedup
     log_interval: int = 100
     save_interval: int = 5000
     val_interval: int = 1000
+    early_stopping: bool = False
+    early_stopping_patience: int = 10
+    early_stopping_min_delta: float = 1e-4
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +226,7 @@ class DataConfig:
     root_dir: str = MISSING
     sample_rate: int = 16000
     segment_length: float = 6.0  # seconds, cropped during training
+    style_embeddings_dir: str = ""  # pre-cached style embeddings (empty = disabled)
 
 
 @dataclass

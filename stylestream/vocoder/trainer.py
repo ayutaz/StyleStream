@@ -422,23 +422,26 @@ class VocoderTrainer(BaseTrainer):
             d_optimizer.step()
             d_scheduler.step()
 
+            # Cache detached real features immediately after D backward.
+            # This frees the discriminator's computation graph for real
+            # audio while keeping the features for G-step feature matching.
+            cached_real_features = [
+                [f.detach() for f in scale_features]
+                for scale_features in real_features
+            ]
+            del real_features  # free D-step graph references
+
             # --- Generator step ----------------------------------------
             # Forward discriminator on fake (without detach for G grads)
             fake_logits_g, fake_features = discriminator(
                 fake_waveform.unsqueeze(1)
             )
 
-            # Detach real features for feature matching loss
-            real_features_detached = [
-                [f.detach() for f in scale_features]
-                for scale_features in real_features
-            ]
-
             g_loss_dict = loss_fn.generator_loss(
                 fake_waveform,
                 real_waveform,
                 fake_logits_g,
-                real_features_detached,
+                cached_real_features,
                 fake_features,
             )
             g_loss = g_loss_dict["loss"]

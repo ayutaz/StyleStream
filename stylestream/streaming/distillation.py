@@ -707,7 +707,7 @@ class DistillationTrainer(BaseTrainer):
         # Teacher expects (B, T, 768); dataset stores (B, 768, T).
         hubert_features_bt = hubert_features.transpose(1, 2)  # (B, T, 768)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             fc_teacher = self._teacher.extract_content_features(
                 hubert_features_bt, padding_mask=padding_mask,
             )  # (B, T_t, 768)
@@ -730,13 +730,19 @@ class DistillationTrainer(BaseTrainer):
             )
 
         # --- MSE loss (masked) ---
-        # Compute per-frame MSE, then average over valid frames only.
+        # Compute MSE only on valid (non-padded) frames to avoid wasted
+        # backward computation.  Previous approach computed diff**2 for
+        # ALL frames then masked; this gathers valid frames first.
         diff = fc_student - fc_teacher.detach()
-        per_frame_mse = (diff ** 2).mean(dim=-1)  # (B, T)
-        if valid_mask.any():
-            mse_loss = (per_frame_mse * valid_mask.float()).sum() / valid_mask.float().sum()
+        valid_mask_f = valid_mask.float()  # compute once, reuse below
+        valid_count = valid_mask.sum()
+        if valid_count > 0:
+            # Zero out padded frames so they contribute nothing to sum
+            # or gradient, then normalise by valid element count.
+            masked_diff = diff * valid_mask_f.unsqueeze(-1)  # (B, T, D)
+            mse_loss = masked_diff.pow(2).sum() / (valid_count * diff.shape[-1])
         else:
-            mse_loss = per_frame_mse.mean()
+            mse_loss = diff.pow(2).mean()
 
         total_loss = mse_loss
 

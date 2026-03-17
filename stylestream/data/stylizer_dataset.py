@@ -78,6 +78,7 @@ class StylizerDataset(Dataset):
         manifest: Manifest,
         mel_dir: str | Path,
         content_features_dir: str | Path | None = None,
+        style_embeddings_dir: str | Path | None = None,
         sample_rate: int = _DEFAULT_SR,
         segment_frames: int = 300,  # 6 seconds at 50 Hz
         mask_ratio_min: float = 0.7,
@@ -102,6 +103,14 @@ class StylizerDataset(Dataset):
             Directory with content-feature ``.pt`` files ``(768, T)``.  Pass
             ``None`` to return zero placeholders (useful before the Destylizer
             is trained).
+        style_embeddings_dir :
+            Directory with pre-cached style embedding ``.pt`` files.  Each
+            file should store a float16 tensor of shape ``(emb_dim,)`` named
+            ``{utterance.stem}.pt``.  When set, the dataset returns a
+            ``"style_embedding"`` key instead of ``"style_waveform"``,
+            skipping the expensive WavLM forward pass at training time.
+            Pass ``None`` (default) to fall back to loading raw style
+            reference waveforms.
         sample_rate :
             Expected audio sample rate (for loading style references).
         segment_frames :
@@ -123,7 +132,11 @@ class StylizerDataset(Dataset):
         self.content_features_dir = (
             Path(content_features_dir) if content_features_dir is not None else None
         )
+        self.style_embeddings_dir = (
+            Path(style_embeddings_dir) if style_embeddings_dir is not None else None
+        )
         self.sample_rate = sample_rate
+        self.frame_rate = _FRAME_RATE
         self.segment_frames = segment_frames
         self.mask_ratio_min = mask_ratio_min
         self.mask_ratio_max = mask_ratio_max
@@ -133,14 +146,17 @@ class StylizerDataset(Dataset):
         self.use_precomputed_mel = use_precomputed_mel
         self.use_precomputed_content = use_precomputed_content
 
+        # Keep the full manifest for re-filtering during progressive training
+        self._all_utterances: list[Utterance] = list(manifest.utterances)
+
         # Minimum utterance duration in seconds
         min_duration = segment_frames / _FRAME_RATE
 
         # Filter utterances shorter than the segment length
         self.utterances: list[Utterance] = [
-            u for u in manifest.utterances if u.duration >= min_duration
+            u for u in self._all_utterances if u.duration >= min_duration
         ]
-        n_dropped = len(manifest) - len(self.utterances)
+        n_dropped = len(self._all_utterances) - len(self.utterances)
         if n_dropped > 0:
             logger.info(
                 "Filtered out %d utterances shorter than %.1f s (kept %d)",
@@ -163,6 +179,63 @@ class StylizerDataset(Dataset):
         # On-the-fly mel transform (lazy import to avoid hard torchaudio dep
         # when using pre-computed features)
         self._mel_transform = None
+
+    # ------------------------------------------------------------------
+    # Progressive training support
+    # ------------------------------------------------------------------
+
+    def update_progressive_params(
+        self,
+        segment_length: float,
+        mask_ratio_min: float,
+        mask_ratio_max: float,
+    ) -> None:
+        """Update dataset parameters for progressive training.
+
+        Called by :class:`StylizerTrainer` at stage boundaries to adjust
+        the segment length and mask ratio range.  The utterance list is
+        re-filtered to exclude utterances shorter than the new segment
+        length, and the speaker-to-indices mapping is rebuilt.
+
+        Parameters
+        ----------
+        segment_length :
+            New segment length in seconds.
+        mask_ratio_min :
+            New lower bound for uniform mask ratio sampling.
+        mask_ratio_max :
+            New upper bound for uniform mask ratio sampling.
+        """
+        self.segment_frames = int(segment_length * self.frame_rate)
+        self.mask_ratio_min = mask_ratio_min
+        self.mask_ratio_max = mask_ratio_max
+
+        # Re-filter utterances for the new minimum duration
+        min_duration = segment_length
+        self.utterances = [
+            u for u in self._all_utterances if u.duration >= min_duration
+        ]
+
+        if len(self.utterances) == 0:
+            raise ValueError(
+                f"No utterances remaining after filtering for >= {min_duration} s "
+                f"during progressive training.  Check your manifest."
+            )
+
+        # Rebuild speaker -> utterance index mapping
+        self._speaker_to_indices = defaultdict(list)
+        for idx, utt in enumerate(self.utterances):
+            self._speaker_to_indices[utt.speaker_id].append(idx)
+
+        logger.info(
+            "Progressive update: segment=%.1fs (%d frames), "
+            "mask_ratio=[%.2f, %.2f], utterances=%d",
+            segment_length,
+            self.segment_frames,
+            mask_ratio_min,
+            mask_ratio_max,
+            len(self.utterances),
+        )
 
     # ------------------------------------------------------------------
     # Length / getitem
@@ -197,24 +270,31 @@ class StylizerDataset(Dataset):
         # mask shape (T,) -> (1, T) for broadcasting over mel bins
         context_mel = mel * (1.0 - mask.unsqueeze(0))
 
-        # --- style reference waveform ------------------------------------
-        style_waveform = self._sample_style_waveform(idx, mask)
+        # --- style reference (cached embedding or raw waveform) -----------
+        style_embedding = self._load_style_embedding(idx)
 
         # --- CFG dropout (independent Bernoulli draws) -------------------
         cfg_drop_content = random.random() < self.cfg_content_drop
         cfg_drop_context = random.random() < self.cfg_context_drop
         cfg_drop_style = random.random() < self.cfg_style_drop
 
-        return {
+        result = {
             "mel": mel,  # (100, 300)
             "content_features": content,  # (768, 300)
             "mask": mask,  # (300,)
             "context_mel": context_mel,  # (100, 300)
-            "style_waveform": style_waveform,  # (samples,)
             "cfg_drop_content": cfg_drop_content,
             "cfg_drop_context": cfg_drop_context,
             "cfg_drop_style": cfg_drop_style,
         }
+
+        if style_embedding is not None:
+            result["style_embedding"] = style_embedding  # (emb_dim,)
+        else:
+            style_waveform = self._sample_style_waveform(idx, mask)
+            result["style_waveform"] = style_waveform  # (samples,)
+
+        return result
 
     # ------------------------------------------------------------------
     # Mask generation
@@ -296,7 +376,8 @@ class StylizerDataset(Dataset):
             # Accept both (100, T) and (1, 100, T)
             if mel.dim() == 3:
                 mel = mel.squeeze(0)
-            return mel
+            # Mel may be stored as float16 for space efficiency; upcast for training.
+            return mel.float()
 
         # On-the-fly computation (slow, for debugging / small experiments)
         if self._mel_transform is None:
@@ -383,6 +464,46 @@ class StylizerDataset(Dataset):
 
         return pad_or_trim(style_region, _STYLE_SAMPLES)
 
+    # ------------------------------------------------------------------
+    # Pre-cached style embedding loading
+    # ------------------------------------------------------------------
+
+    def _load_style_embedding(self, current_idx: int) -> torch.Tensor | None:
+        """Load a pre-cached style embedding for the style reference utterance.
+
+        Uses the same speaker-based reference selection logic as
+        :meth:`_sample_style_waveform`: prefers a different utterance from the
+        same speaker, otherwise falls back to the current utterance.
+
+        Returns ``None`` if ``style_embeddings_dir`` is not set, letting the
+        caller fall back to loading the raw style waveform.
+
+        Returns
+        -------
+        torch.Tensor or None
+            ``(emb_dim,)`` float32 tensor, or *None* if caching is not enabled.
+        """
+        if self.style_embeddings_dir is None:
+            return None
+
+        utt = self.utterances[current_idx]
+        speaker_indices = self._speaker_to_indices[utt.speaker_id]
+
+        # Prefer a different utterance from the same speaker
+        if len(speaker_indices) > 1:
+            candidates = [i for i in speaker_indices if i != current_idx]
+            ref_idx = random.choice(candidates)
+            ref_utt = self.utterances[ref_idx]
+        else:
+            ref_utt = utt
+
+        emb_path = self.style_embeddings_dir / f"{ref_utt.stem}.pt"
+        if not emb_path.exists():
+            return None
+
+        emb = torch.load(emb_path, map_location="cpu", weights_only=True)
+        return emb.float()  # stored as float16, upcast to float32
+
 
 # ======================================================================
 # Collator
@@ -396,6 +517,10 @@ class StylizerCollator:
     count (300) so they are simply stacked.  Style waveforms may differ in
     length (though :class:`StylizerDataset` already pads them to a fixed
     size) -- the collator pads to the batch maximum as a safety net.
+
+    When the dataset provides pre-cached ``style_embedding`` tensors (all
+    samples in the batch have this key), those are stacked and returned
+    instead of ``style_waveform``.
     """
 
     def __call__(self, batch: list[dict]) -> dict:
@@ -408,6 +533,8 @@ class StylizerCollator:
             * ``mask``:             (B, 300)
             * ``context_mel``:      (B, 100, 300)
             * ``style_waveform``:   (B, max_style_samples)  padded
+              **OR**
+            * ``style_embedding``:  (B, emb_dim)  when pre-cached
             * ``cfg_drop_content``: (B,)  bool tensor
             * ``cfg_drop_context``: (B,)  bool tensor
             * ``cfg_drop_style``:   (B,)  bool tensor
@@ -416,12 +543,6 @@ class StylizerCollator:
         content = torch.stack([s["content_features"] for s in batch])
         mask = torch.stack([s["mask"] for s in batch])
         context_mel = torch.stack([s["context_mel"] for s in batch])
-
-        # Style waveforms: pad to the longest in the batch
-        style_waveforms = [s["style_waveform"] for s in batch]
-        style_waveform = pad_sequence(
-            style_waveforms, batch_first=True, padding_value=0.0
-        )
 
         cfg_drop_content = torch.tensor(
             [s["cfg_drop_content"] for s in batch], dtype=torch.bool
@@ -433,16 +554,29 @@ class StylizerCollator:
             [s["cfg_drop_style"] for s in batch], dtype=torch.bool
         )
 
-        return {
+        result = {
             "mel": mel,
             "content_features": content,
             "mask": mask,
             "context_mel": context_mel,
-            "style_waveform": style_waveform,
             "cfg_drop_content": cfg_drop_content,
             "cfg_drop_context": cfg_drop_context,
             "cfg_drop_style": cfg_drop_style,
         }
+
+        # Pre-cached style embeddings: all samples must have the key
+        if "style_embedding" in batch[0]:
+            result["style_embedding"] = torch.stack(
+                [s["style_embedding"] for s in batch]
+            )
+        else:
+            # Style waveforms: pad to the longest in the batch
+            style_waveforms = [s["style_waveform"] for s in batch]
+            result["style_waveform"] = pad_sequence(
+                style_waveforms, batch_first=True, padding_value=0.0
+            )
+
+        return result
 
 
 # ======================================================================
@@ -454,8 +588,10 @@ def build_stylizer_dataloader(
     manifest: Manifest,
     mel_dir: str | Path,
     content_features_dir: str | Path | None = None,
+    style_embeddings_dir: str | Path | None = None,
     batch_size: int = 64,
-    num_workers: int = 4,
+    num_workers: int = 8,
+    prefetch_factor: int = 4,
     **kwargs,
 ) -> DataLoader:
     """Convenience function to build a Stylizer :class:`DataLoader`.
@@ -469,6 +605,9 @@ def build_stylizer_dataloader(
     content_features_dir :
         Directory with content-feature ``.pt`` files.  ``None`` to use
         zero placeholders.
+    style_embeddings_dir :
+        Directory with pre-cached style embedding ``.pt`` files.  ``None``
+        to load raw style waveforms and compute embeddings on-the-fly.
     batch_size :
         Per-device batch size (paper: 64).
     num_workers :
@@ -485,12 +624,12 @@ def build_stylizer_dataloader(
         manifest=manifest,
         mel_dir=mel_dir,
         content_features_dir=content_features_dir,
+        style_embeddings_dir=style_embeddings_dir,
         **kwargs,
     )
     collator = StylizerCollator()
 
-    return DataLoader(
-        dataset,
+    loader_kwargs: dict = dict(
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
@@ -499,3 +638,7 @@ def build_stylizer_dataloader(
         drop_last=True,
         persistent_workers=num_workers > 0,
     )
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = prefetch_factor
+
+    return DataLoader(dataset, **loader_kwargs)

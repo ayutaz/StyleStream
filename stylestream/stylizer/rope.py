@@ -107,12 +107,17 @@ class RotaryPositionEmbedding(nn.Module):
     ) -> tuple[Tensor, Tensor]:
         """Return (cos, sin) for positions ``[offset, offset + seq_len)``.
 
+        The cos/sin tables are pre-allocated at ``__init__`` time for
+        ``max_seq_len`` positions.  This method simply slices the
+        pre-allocated buffers -- no conditional logic, no recomputation,
+        making it compatible with ``torch.compile``.
+
         Parameters
         ----------
         x : Tensor
             Input tensor of shape ``(B, num_heads, T, head_dim)`` or
             ``(B, T, num_heads, head_dim)``.  Only used to determine
-            ``seq_len`` and device.
+            ``seq_len`` and device/dtype.
         offset : int
             Position offset for streaming / causal inference. Default 0.
 
@@ -126,18 +131,10 @@ class RotaryPositionEmbedding(nn.Module):
         # x can be (B, H, T, D) or (B, T, H, D); T is always dim -2
         seq_len = x.shape[-2]
 
-        if offset + seq_len > self.max_seq_len:
-            # Dynamically extend the cache if needed
-            cos, sin = self._build_cache(
-                offset + seq_len, self.dim, self.base
-            )
-            self.cos_cached = cos.to(device=x.device, dtype=x.dtype)
-            self.sin_cached = sin.to(device=x.device, dtype=x.dtype)
-
-        cos = self.cos_cached[:, :, offset : offset + seq_len, :].to(
+        cos = self.cos_cached[:, :, offset:offset + seq_len, :].to(
             device=x.device, dtype=x.dtype
         )
-        sin = self.sin_cached[:, :, offset : offset + seq_len, :].to(
+        sin = self.sin_cached[:, :, offset:offset + seq_len, :].to(
             device=x.device, dtype=x.dtype
         )
 

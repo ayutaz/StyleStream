@@ -301,7 +301,7 @@ class ContentFeatureExtractor:
         """
         assert self._hubert_extract_fn is not None
         batch = waveform.unsqueeze(0)  # (1, samples)
-        with torch.no_grad():
+        with torch.inference_mode():
             feat = self._hubert_extract_fn(batch)  # (1, 768, T)
         return feat.squeeze(0).cpu()  # (768, T)
 
@@ -333,7 +333,7 @@ class ContentFeatureExtractor:
         if self._use_fp16:
             x = x.half()
 
-        with torch.no_grad():
+        with torch.inference_mode():
             content = self._destylizer.extract_content_features(x, padding_mask=mask)
 
         return content.float()

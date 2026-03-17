@@ -45,15 +45,23 @@ class RingBuffer:
         self.max_frames = max_frames
         self.feature_dim = feature_dim
         self.device = device
-        self._buffer: Tensor | None = None  # (1, T_current, feature_dim)
+        # Pre-allocate the full buffer to avoid repeated torch.cat() + slice.
+        self._buffer: Tensor = torch.zeros(
+            1, max_frames, feature_dim,
+            device=device,
+        )
         self._length: int = 0
 
     def append(self, features: Tensor) -> None:
         """Append new frames to the buffer.
 
-        If the resulting buffer would exceed ``max_frames``, the oldest
-        frames are evicted (FIFO). If the incoming chunk itself is longer
-        than ``max_frames``, only the last ``max_frames`` frames are kept.
+        Uses a pre-allocated circular buffer: when there is room the new
+        frames are written in-place; when full the oldest data is shifted
+        left and new data is written at the tail.  This avoids the
+        allocation overhead of ``torch.cat()`` + slice on every call.
+
+        If the incoming chunk itself is longer than ``max_frames``, only
+        the last ``max_frames`` frames are kept.
 
         Parameters
         ----------
@@ -91,16 +99,31 @@ class RingBuffer:
         if self.device is not None:
             features = features.to(self.device)
 
-        if self._buffer is None:
-            self._buffer = features
+        # Ensure the pre-allocated buffer lives on the same device as the
+        # incoming data (handles lazy device migration on first append).
+        if self._buffer.device != features.device:
+            self._buffer = self._buffer.to(features.device)
+
+        T_new = features.shape[1]
+
+        # If the incoming chunk exceeds max_frames, keep only the tail.
+        if T_new >= self.max_frames:
+            self._buffer[:, :, :] = features[:, -self.max_frames:, :]
+            self._length = self.max_frames
+            return
+
+        if self._length + T_new <= self.max_frames:
+            # Room available: write new frames in-place.
+            self._buffer[:, self._length:self._length + T_new, :] = features
+            self._length += T_new
         else:
-            self._buffer = torch.cat([self._buffer, features], dim=1)
-
-        # Trim to max_frames (keep newest frames).
-        if self._buffer.shape[1] > self.max_frames:
-            self._buffer = self._buffer[:, -self.max_frames:, :]
-
-        self._length = self._buffer.shape[1]
+            # Shift old data left, then write new frames at the tail.
+            keep = self.max_frames - T_new
+            self._buffer[:, :keep, :] = (
+                self._buffer[:, self._length - keep:self._length, :].clone()
+            )
+            self._buffer[:, keep:keep + T_new, :] = features
+            self._length = self.max_frames
 
     def get(self) -> Tensor | None:
         """Get all buffered frames.
@@ -110,7 +133,9 @@ class RingBuffer:
         Tensor or None
             Shape ``(1, T_current, feature_dim)``, or ``None`` if empty.
         """
-        return self._buffer
+        if self._length == 0:
+            return None
+        return self._buffer[:, :self._length, :]
 
     @property
     def length(self) -> int:
@@ -128,8 +153,11 @@ class RingBuffer:
         return self._length == 0
 
     def reset(self) -> None:
-        """Clear the buffer."""
-        self._buffer = None
+        """Clear the buffer.
+
+        Resets the logical length to zero.  The pre-allocated storage
+        is kept (and will be overwritten on subsequent ``append`` calls).
+        """
         self._length = 0
 
 

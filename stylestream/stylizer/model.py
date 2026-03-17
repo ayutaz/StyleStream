@@ -261,7 +261,8 @@ class Stylizer(nn.Module):
         mel: torch.Tensor,
         content_features: torch.Tensor,
         mask: torch.Tensor,
-        style_waveform: torch.Tensor,
+        style_waveform: torch.Tensor | None = None,
+        style_embedding: torch.Tensor | None = None,
         cfg_drop_content: torch.Tensor | None = None,
         cfg_drop_context: torch.Tensor | None = None,
         cfg_drop_style: torch.Tensor | None = None,
@@ -273,7 +274,8 @@ class Stylizer(nn.Module):
         Steps:
 
         1. Compute context mel from the ground-truth mel and mask.
-        2. Extract style embedding from the target waveform.
+        2. Extract style embedding from the target waveform (or use
+           pre-computed ``style_embedding`` if provided).
         3. Apply CFG training dropout to content, context, and style.
         4. Sample CFM noise and timestep.
         5. Interpolate to get noisy mel ``x_t``.
@@ -289,9 +291,15 @@ class Stylizer(nn.Module):
         mask : Tensor
             ``(B, T)`` binary mask where ``1`` = masked (to generate)
             and ``0`` = context (to keep).
-        style_waveform : Tensor
+        style_waveform : Tensor or None
             ``(B, num_samples)`` raw 16 kHz audio of the target speaker
-            for style extraction.
+            for style extraction.  Required when *style_embedding* is
+            not provided.
+        style_embedding : Tensor or None
+            ``(B, hidden_size)`` pre-computed style embedding.  When
+            provided, the style encoder forward pass is skipped entirely,
+            saving the cost of the frozen WavLM backbone.  Mutually
+            exclusive with *style_waveform* -- exactly one must be given.
         cfg_drop_content : Tensor or None
             ``(B,)`` bool -- pre-sampled per-sample content dropout
             decisions.  If *None*, sampled internally by CFG.
@@ -317,8 +325,15 @@ class Stylizer(nn.Module):
         # mask (B, T) -> (B, T, 1) for broadcasting over mel_dim.
         context_mel = mel * (1.0 - mask.unsqueeze(-1))  # (B, T, mel_dim)
 
-        # 2. Extract style embedding.
-        style_emb = self.style_encoder(style_waveform)  # (B, hidden_size)
+        # 2. Extract style embedding (or use pre-computed).
+        if style_embedding is not None:
+            style_emb = style_embedding.to(device=device, dtype=dtype)
+        elif style_waveform is not None:
+            style_emb = self.style_encoder(style_waveform)  # (B, hidden_size)
+        else:
+            raise ValueError(
+                "Either 'style_waveform' or 'style_embedding' must be provided."
+            )
 
         # 3. Apply CFG training dropout.
         content_dropped, context_dropped, style_dropped = (

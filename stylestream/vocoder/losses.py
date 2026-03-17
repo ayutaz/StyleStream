@@ -154,7 +154,9 @@ def mel_reconstruction_loss(
     """L1 mel spectrogram reconstruction loss.
 
     Computes mel spectrograms for both predicted and target waveforms,
-    then returns the L1 distance.
+    then returns the L1 distance.  The target mel is computed under
+    ``torch.no_grad()`` because the target waveform is ground truth and
+    does not require gradient flow through the mel filter bank.
 
     Parameters
     ----------
@@ -171,8 +173,12 @@ def mel_reconstruction_loss(
     Tensor
         Scalar L1 loss.
     """
+    # pred_mel needs gradient flow back to the generator
     pred_mel = mel_transform(pred_waveform)      # (B, n_mels, T)
-    target_mel = mel_transform(target_waveform)   # (B, n_mels, T)
+
+    # target_mel is ground truth — no gradient needed, saves memory
+    with torch.no_grad():
+        target_mel = mel_transform(target_waveform)   # (B, n_mels, T)
 
     # Align lengths in case of minor frame-count differences
     min_t = min(pred_mel.shape[-1], target_mel.shape[-1])
@@ -234,9 +240,10 @@ class VocoderLoss(nn.Module):
         self._hop_length = hop_length
         self._sample_rate = sample_rate
         self._mel_transform: MelSpectrogramTransform | None = None
+        self._mel_device: torch.device | None = None
 
     # ------------------------------------------------------------------
-    # Lazy mel transform
+    # Lazy mel transform with device caching
     # ------------------------------------------------------------------
 
     @property
@@ -253,6 +260,27 @@ class VocoderLoss(nn.Module):
                 sample_rate=self._sample_rate,
             )
         return self._mel_transform
+
+    def _get_mel_transform(self, device: torch.device) -> MelSpectrogramTransform:
+        """Return the mel transform on the correct device, caching moves.
+
+        Avoids calling ``.to(device)`` every forward pass when the device
+        has not changed (the common case during training).
+
+        Parameters
+        ----------
+        device : torch.device
+            Target device for the mel transform.
+
+        Returns
+        -------
+        MelSpectrogramTransform
+            The transform, already on *device*.
+        """
+        if self._mel_device != device:
+            self._mel_transform = self.mel_transform.to(device)
+            self._mel_device = device
+        return self.mel_transform
 
     # ------------------------------------------------------------------
     # Generator loss
@@ -290,7 +318,8 @@ class VocoderLoss(nn.Module):
             ``'fm_loss'``: feature matching loss.
         """
         # Ensure mel transform is on the same device as the waveforms
-        mel_xform = self.mel_transform.to(pred_waveform.device)
+        # (cached — avoids redundant .to() calls on subsequent iterations)
+        mel_xform = self._get_mel_transform(pred_waveform.device)
 
         mel_loss = mel_reconstruction_loss(pred_waveform, target_waveform, mel_xform)
         gan_loss = generator_adversarial_loss(disc_fake_outputs)

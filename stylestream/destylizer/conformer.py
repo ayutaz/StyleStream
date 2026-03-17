@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
+from torch.utils.checkpoint import checkpoint as grad_checkpoint
 
 from stylestream.destylizer.alibi import build_alibi_bias
 
@@ -301,34 +303,36 @@ class MultiHeadSelfAttention(nn.Module):
         qkv = qkv.permute(2, 0, 3, 1, 4)  # (3, B, H, T, D)
         q, k, v = qkv.unbind(dim=0)  # each (B, H, T, D)
 
-        # Scaled dot-product attention scores
-        attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        # (B, H, T, T)
-
-        # Add ALiBi positional bias
+        # Build ALiBi positional bias
         alibi_bias = build_alibi_bias(
             seq_len=T,
             num_heads=H,
             device=x.device,
-            dtype=attn_scores.dtype,
+            dtype=q.dtype,
             causal=causal,
         )  # (1, H, T, T)
-        attn_scores = attn_scores + alibi_bias
 
-        # Apply padding mask: positions where padding_mask is True should
-        # receive -inf so they get zero weight after softmax.
+        # Combine ALiBi bias with padding mask into a single attention mask.
+        # F.scaled_dot_product_attention adds attn_mask to the attention
+        # scores before softmax, so ALiBi bias can be passed directly.
         if padding_mask is not None:
-            # padding_mask: (B, T) -> (B, 1, 1, T) to broadcast over (B, H, T, T)
-            # Mask the key dimension (last axis): queries should not attend
-            # to padded key positions.
-            mask = padding_mask.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, T)
-            attn_scores = attn_scores.masked_fill(mask, float("-inf"))
+            # padding_mask: (B, T) bool, True = ignore -> convert to float
+            # with 0.0 for valid positions and -inf for padded positions.
+            # Shape: (B, 1, 1, T) to broadcast over (B, H, T, T).
+            padding_float = torch.zeros_like(
+                padding_mask, dtype=q.dtype,
+            ).masked_fill_(padding_mask, float("-inf"))
+            attn_mask = alibi_bias + padding_float.unsqueeze(1).unsqueeze(2)
+        else:
+            attn_mask = alibi_bias
 
-        attn_weights = torch.softmax(attn_scores, dim=-1)
-        attn_weights = self.attn_dropout(attn_weights)
-
-        # Weighted sum of values
-        attn_output = torch.matmul(attn_weights, v)  # (B, H, T, D)
+        # Scaled dot-product attention with Flash/memory-efficient kernels
+        attn_output = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=attn_mask,
+            dropout_p=self.attn_dropout.p if self.training else 0.0,
+            is_causal=False,
+        )  # (B, H, T, D)
         attn_output = attn_output.transpose(1, 2).reshape(B, T, self.hidden_size)
 
         return self.out_proj(attn_output)
@@ -483,10 +487,12 @@ class ConformerEncoder(nn.Module):
         kernel_size: int = 31,
         dropout: float = 0.1,
         causal: bool = False,
+        gradient_checkpointing: bool = False,
     ) -> None:
         super().__init__()
         self.num_layers = num_layers
         self.hidden_size = hidden_size
+        self.gradient_checkpointing = gradient_checkpointing
 
         self.layers = nn.ModuleList([
             ConformerBlock(
@@ -531,6 +537,7 @@ class ConformerEncoder(nn.Module):
             kernel_size=config.kernel_size,
             dropout=dropout,
             causal=causal,
+            gradient_checkpointing=getattr(config, "gradient_checkpointing", False),
         )
 
     def forward(
@@ -554,5 +561,12 @@ class ConformerEncoder(nn.Module):
             Shape ``(B, T, hidden_size)``.
         """
         for layer in self.layers:
-            x = layer(x, padding_mask)
+            if self.gradient_checkpointing and self.training:
+                x = grad_checkpoint(
+                    layer,
+                    x, padding_mask,
+                    use_reentrant=False,
+                )
+            else:
+                x = layer(x, padding_mask)
         return x

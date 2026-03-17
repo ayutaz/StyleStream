@@ -14,14 +14,16 @@ Training spec (paper Section 10.8):
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from stylestream.data.manifest import Manifest
-from stylestream.data.stylizer_dataset import build_stylizer_dataloader
+from stylestream.data.stylizer_dataset import StylizerDataset, build_stylizer_dataloader
 from stylestream.stylizer.model import Stylizer
-from stylestream.training.trainer import BaseTrainer
+from stylestream.training.trainer import BaseTrainer, ProgressiveSchedule
 
 
 class StylizerTrainer(BaseTrainer):
@@ -125,6 +127,10 @@ class StylizerTrainer(BaseTrainer):
         and ``config.data.content_features_dir`` to construct a
         :func:`build_stylizer_dataloader`.
 
+        A reference to the underlying :class:`StylizerDataset` is stored as
+        ``self._train_dataset`` so that progressive training can update its
+        parameters mid-training.
+
         Returns
         -------
         DataLoader
@@ -136,6 +142,9 @@ class StylizerTrainer(BaseTrainer):
         content_features_dir = getattr(
             self.config.data, "content_features_dir", None
         )
+        style_embeddings_dir = getattr(
+            self.config.data, "style_embeddings_dir", None
+        ) or None  # treat empty string as None
         batch_size = self.config.training.batch_size
         num_workers = getattr(self.config.data, "num_workers", 4)
 
@@ -145,14 +154,24 @@ class StylizerTrainer(BaseTrainer):
             len(manifest),
             manifest_path,
         )
+        if style_embeddings_dir:
+            self.logger.info(
+                "Using pre-cached style embeddings from %s", style_embeddings_dir
+            )
 
-        return build_stylizer_dataloader(
+        dataloader = build_stylizer_dataloader(
             manifest=manifest,
             mel_dir=mel_dir,
             content_features_dir=content_features_dir,
+            style_embeddings_dir=style_embeddings_dir,
             batch_size=batch_size,
             num_workers=num_workers,
         )
+
+        # Store reference to the dataset for progressive training updates
+        self._train_dataset: StylizerDataset = dataloader.dataset  # type: ignore[assignment]
+
+        return dataloader
 
     def build_val_dataloader(self) -> DataLoader | None:
         """Build the validation DataLoader if ``val_manifest_path`` is set.
@@ -171,6 +190,9 @@ class StylizerTrainer(BaseTrainer):
         content_features_dir = getattr(
             self.config.data, "content_features_dir", None
         )
+        style_embeddings_dir = getattr(
+            self.config.data, "style_embeddings_dir", None
+        ) or None  # treat empty string as None
         batch_size = self.config.training.batch_size
         num_workers = getattr(self.config.data, "num_workers", 4)
 
@@ -185,6 +207,7 @@ class StylizerTrainer(BaseTrainer):
             manifest=manifest,
             mel_dir=mel_dir,
             content_features_dir=content_features_dir,
+            style_embeddings_dir=style_embeddings_dir,
             batch_size=batch_size,
             num_workers=num_workers,
         )
@@ -221,7 +244,10 @@ class StylizerTrainer(BaseTrainer):
         mel = batch["mel"].transpose(1, 2)                  # (B,100,T) -> (B,T,100)
         content = batch["content_features"].transpose(1, 2)  # (B,768,T) -> (B,T,768)
         mask = batch["mask"]                                  # (B, T) already correct
-        style_waveform = batch["style_waveform"]              # (B, samples)
+
+        # Style: use pre-cached embedding if available, otherwise raw waveform
+        style_waveform = batch.get("style_waveform")          # (B, samples) or None
+        style_embedding = batch.get("style_embedding")        # (B, emb_dim) or None
 
         # Forward through the Stylizer model
         # Note: context_mel is derived from mel and mask internally by the model
@@ -230,6 +256,7 @@ class StylizerTrainer(BaseTrainer):
             content_features=content,
             mask=mask,
             style_waveform=style_waveform,
+            style_embedding=style_embedding,
             cfg_drop_content=batch["cfg_drop_content"],
             cfg_drop_context=batch["cfg_drop_context"],
             cfg_drop_style=batch["cfg_drop_style"],
@@ -260,7 +287,7 @@ class StylizerTrainer(BaseTrainer):
         total_loss = 0.0
         n_batches = 0
 
-        with torch.no_grad():
+        with torch.inference_mode():
             for batch in val_dl:
                 # Move batch to device (Accelerate handles this for the
                 # training dataloader, but val_dl may not be prepared)
@@ -276,12 +303,77 @@ class StylizerTrainer(BaseTrainer):
         return {"loss": total_loss / n_batches}
 
     # ------------------------------------------------------------------
-    # Hooks
+    # Hooks (progressive training integration)
     # ------------------------------------------------------------------
 
     def on_train_start(self) -> None:
-        """Log model summary and config at the start of training."""
+        """Log config and initialise progressive schedule if enabled."""
         self.logger.info("Config: %s", _config_summary(self.config))
+
+        # Initialise progressive training schedule
+        progressive = getattr(
+            getattr(self.config, "stylizer", self.config),
+            "progressive",
+            False,
+        )
+        self._progressive_schedule: ProgressiveSchedule | None = None
+        self._progressive_stage_idx: int = -1
+
+        if progressive:
+            total_steps = self.config.training.steps
+            self._progressive_schedule = ProgressiveSchedule(total_steps)
+            self.logger.info(
+                "Progressive training enabled with %d stages over %d steps",
+                len(self._progressive_schedule.stages),
+                total_steps,
+            )
+            # Apply the first stage immediately
+            self._maybe_update_progressive_stage()
+
+    def on_step_end(self, metrics: dict[str, Any]) -> None:
+        """Check for progressive stage transitions after each step."""
+        if self._progressive_schedule is not None:
+            self._maybe_update_progressive_stage()
+
+    def _maybe_update_progressive_stage(self) -> None:
+        """Update dataset parameters if the progressive stage has changed.
+
+        Compares the current stage index against the last applied stage.
+        If a new stage is active, calls
+        :meth:`StylizerDataset.update_progressive_params` to adjust
+        segment length and mask ratios.
+        """
+        assert self._progressive_schedule is not None
+        stage = self._progressive_schedule.get_stage(self.global_step)
+
+        # Find the index of the active stage
+        stage_idx = 0
+        for i, s in enumerate(self._progressive_schedule.stages):
+            if self.global_step >= s.start_step:
+                stage_idx = i
+
+        if stage_idx == self._progressive_stage_idx:
+            return  # No change
+
+        self._progressive_stage_idx = stage_idx
+        self.logger.info(
+            "Progressive training: transitioning to stage %d at step %d "
+            "(segment=%.1fs, mask=[%.2f, %.2f])",
+            stage_idx,
+            self.global_step,
+            stage.segment_length,
+            stage.mask_ratio_min,
+            stage.mask_ratio_max,
+        )
+
+        # Update the dataset parameters
+        dataset = getattr(self, "_train_dataset", None)
+        if dataset is not None and hasattr(dataset, "update_progressive_params"):
+            dataset.update_progressive_params(
+                segment_length=stage.segment_length,
+                mask_ratio_min=stage.mask_ratio_min,
+                mask_ratio_max=stage.mask_ratio_max,
+            )
 
 
 # ======================================================================

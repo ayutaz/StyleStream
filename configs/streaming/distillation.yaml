@@ -12,10 +12,11 @@ distillation:
   chunk_size: 30
 
 training:
-  steps: 100000
+  steps: 80000
   batch_size: 32
   num_gpus: 8
   peak_lr: 1.0e-4
+  min_lr: 1.0e-6
   warmup_steps: 4000
   scheduler: "cosine_annealing"
   gradient_clip: 1.0

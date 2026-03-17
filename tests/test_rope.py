@@ -111,14 +111,28 @@ class TestRotaryPositionEmbedding:
         torch.testing.assert_close(cos1, cos2, atol=1e-7, rtol=1e-7)
         torch.testing.assert_close(sin1, sin2, atol=1e-7, rtol=1e-7)
 
-    def test_dynamic_cache_extension(self) -> None:
-        """When offset + seq_len exceeds max_seq_len, the cache should extend."""
-        rope = _make_rope(max_seq_len=10)
-        x = torch.randn(B, HEADS, 20, DIM)
+    def test_preallocated_cache_slicing(self) -> None:
+        """Slicing the pre-allocated cache should return the correct subsequence.
 
-        # Should not raise -- cache should extend dynamically
-        cos, sin = rope(x, offset=0)
+        With a large pre-allocated max_seq_len, requesting a short
+        sequence should return the correct slice without recomputation.
+        """
+        rope = _make_rope(max_seq_len=4096)
+        x_short = torch.randn(B, HEADS, 20, DIM)
+
+        cos, sin = rope(x_short, offset=0)
         assert cos.shape == (1, 1, 20, DIM)
+
+        # Requesting with an offset should give positions from the same table
+        x_chunk = torch.randn(B, HEADS, 10, DIM)
+        cos_off, sin_off = rope(x_chunk, offset=10)
+        assert cos_off.shape == (1, 1, 10, DIM)
+
+        # Verify consistency: offset=10 for T=10 should match positions 10..19
+        # from a T=20 fetch
+        torch.testing.assert_close(
+            cos_off, cos[:, :, 10:20, :], atol=1e-7, rtol=1e-7
+        )
 
     def test_cos_sin_values_finite(self) -> None:
         """All cos/sin values should be finite (no nan/inf)."""

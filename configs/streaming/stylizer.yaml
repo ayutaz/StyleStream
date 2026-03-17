@@ -27,10 +27,11 @@ cfg:
   style_drop: 0.3
 
 training:
-  steps: 400000
+  steps: 320000
   batch_size: 64
   num_gpus: 8
   peak_lr: 1.0e-4
+  min_lr: 1.0e-6
   warmup_steps: 2000
   scheduler: "cosine_annealing"
   gradient_clip: 1.0

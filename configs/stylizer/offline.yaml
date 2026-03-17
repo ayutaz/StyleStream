@@ -53,12 +53,13 @@ mask:
 
 # ── Training ──────────────────────────────────────────────────────
 training:
-  steps: 400000
+  steps: 320000
   batch_size: 64        # per-GPU
   num_gpus: 8
   optimizer: "adamw"
   peak_lr: 1.0e-4
-  warmup_steps: 2000
+  min_lr: 1.0e-6
+  warmup_steps: 3000
   scheduler: "cosine_annealing"
   gradient_clip: 1.0
   gradient_accumulation_steps: 1

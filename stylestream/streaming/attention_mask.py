@@ -16,6 +16,11 @@ from torch import Tensor
 
 from stylestream.destylizer.alibi import get_alibi_slopes
 
+# Module-level cache for chunked causal masks.  Keyed by
+# (seq_len, chunk_size, device_str, dtype) to avoid recomputing the
+# same mask on every forward pass during training and inference.
+_mask_cache: dict[tuple, Tensor] = {}
+
 
 def build_chunked_causal_mask(
     seq_len: int,
@@ -60,9 +65,17 @@ def build_chunked_causal_mask(
         Bool mask of shape ``(seq_len, seq_len)`` where ``True`` means the
         query position is allowed to attend to the key position.
     """
+    # Return a cached mask if one exists for this configuration.
+    cache_key = (seq_len, chunk_size, str(device), dtype)
+    cached = _mask_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     # When chunk_size covers the whole sequence, return all-True (full attention).
     if chunk_size >= seq_len:
-        return torch.ones(seq_len, seq_len, device=device, dtype=dtype)
+        mask = torch.ones(seq_len, seq_len, device=device, dtype=dtype)
+        _mask_cache[cache_key] = mask
+        return mask
 
     # Assign each position to its chunk index: chunk_idx[i] = i // chunk_size
     chunk_idx = torch.arange(seq_len, device=device).div(chunk_size, rounding_mode="floor")
@@ -71,7 +84,9 @@ def build_chunked_causal_mask(
     # This creates the block lower-triangular structure.
     mask = chunk_idx.unsqueeze(1) >= chunk_idx.unsqueeze(0)  # (S, S)
 
-    return mask.to(dtype=dtype)
+    mask = mask.to(dtype=dtype)
+    _mask_cache[cache_key] = mask
+    return mask
 
 
 def chunked_causal_mask_to_attn_bias(

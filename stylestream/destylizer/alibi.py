@@ -25,6 +25,21 @@ import torch
 
 
 # ---------------------------------------------------------------------------
+# ALiBi bias cache
+# ---------------------------------------------------------------------------
+
+_alibi_cache: dict[tuple, torch.Tensor] = {}
+
+
+def clear_alibi_cache() -> None:
+    """Clear the ALiBi bias cache.
+
+    Call this when switching devices, dtypes, or to free memory.
+    """
+    _alibi_cache.clear()
+
+
+# ---------------------------------------------------------------------------
 # Slope computation
 # ---------------------------------------------------------------------------
 
@@ -91,6 +106,10 @@ def build_alibi_bias(
 ) -> torch.Tensor:
     """Build the ALiBi attention-score bias matrix.
 
+    Results are cached by ``(seq_len, num_heads, device, dtype, causal)``
+    so that repeated calls with the same arguments (e.g. across layers in
+    the same forward pass) return the cached tensor without recomputation.
+
     The returned tensor can be added directly to the raw attention logits
     **before** softmax::
 
@@ -121,6 +140,10 @@ def build_alibi_bias(
         the batch dimension of attention scores.
     """
 
+    cache_key = (seq_len, num_heads, str(device), str(dtype), causal)
+    if cache_key in _alibi_cache:
+        return _alibi_cache[cache_key]
+
     # slopes: (num_heads,) on CPU
     slopes = get_alibi_slopes(num_heads)
 
@@ -135,17 +158,17 @@ def build_alibi_bias(
     if causal:
         # For causal attention keep only past-and-present (i >= j).
         # bias = -slope * (i - j) for i >= j, else -inf
-        distance = rel_dist.clone()
-        # Mask future positions
+        # Use torch.where to avoid an unnecessary .clone()
         future_mask = rel_dist < 0
-        distance[future_mask] = 0  # temporary; will be overwritten by -inf
+        distance = torch.where(future_mask, torch.zeros_like(rel_dist), rel_dist)
 
         # slopes -> (num_heads, 1, 1) for broadcasting
         slopes_dev = slopes.to(device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
         bias = -slopes_dev * distance.unsqueeze(0)  # (H, S, S)
 
         # Apply causal mask (-inf for future positions)
-        bias[:, future_mask] = float("-inf")
+        neg_inf = torch.tensor(float("-inf"), device=device, dtype=dtype)
+        bias = torch.where(future_mask.unsqueeze(0), neg_inf, bias)
     else:
         # Bidirectional: bias = -slope * |i - j|
         abs_dist = rel_dist.abs()  # (S, S)
@@ -153,4 +176,6 @@ def build_alibi_bias(
         bias = -slopes_dev * abs_dist.unsqueeze(0)  # (H, S, S)
 
     # Add batch dimension: (1, H, S, S)
-    return bias.unsqueeze(0)
+    result = bias.unsqueeze(0)
+    _alibi_cache[cache_key] = result
+    return result

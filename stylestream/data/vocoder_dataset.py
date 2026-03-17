@@ -155,7 +155,8 @@ class VocoderDataset(Dataset):
         # Accept both (n_mels, T) and (1, n_mels, T)
         if mel.dim() == 3:
             mel = mel.squeeze(0)
-        return mel
+        # Mel may be stored as float16 for space efficiency; upcast for training.
+        return mel.float()
 
     def _compute_mel(self, waveform: torch.Tensor) -> torch.Tensor:
         """Compute mel spectrogram on-the-fly.
@@ -288,10 +289,11 @@ def build_vocoder_dataloader(
     audio_dir: str | Path,
     mel_dir: str | Path | None = None,
     batch_size: int = 64,
-    num_workers: int = 4,
+    num_workers: int = 8,
     shuffle: bool = True,
     pin_memory: bool = True,
     drop_last: bool = True,
+    prefetch_factor: int = 4,
     **kwargs,
 ) -> DataLoader:
     """Build a :class:`DataLoader` for vocoder training.
@@ -333,8 +335,7 @@ def build_vocoder_dataloader(
         **kwargs,
     )
 
-    return DataLoader(
-        dataset,
+    loader_kwargs: dict = dict(
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
@@ -342,3 +343,7 @@ def build_vocoder_dataloader(
         drop_last=drop_last,
         persistent_workers=num_workers > 0,
     )
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = prefetch_factor
+
+    return DataLoader(dataset, **loader_kwargs)

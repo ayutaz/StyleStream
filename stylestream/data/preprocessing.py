@@ -13,7 +13,7 @@ Directory layout produced::
 
     output_dir/
       16k/{dataset}/{subset}/{stem}.wav      # resampled audio
-      mel/{dataset}/{subset}/{stem}.pt        # mel tensor (100, T)
+      mel/{dataset}/{subset}/{stem}.pt        # mel tensor (100, T), float16
 """
 
 from __future__ import annotations
@@ -121,7 +121,9 @@ def _compute_mel_single(args: tuple) -> dict:
         mel = transform(waveform.unsqueeze(0)).squeeze(0)  # (100, T)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(mel, output_path)
+        # Save as float16 to halve disk usage and I/O time.
+        # Consumers cast back to float32 on load.
+        torch.save(mel.to(torch.float16), output_path)
         result["shape"] = tuple(mel.shape)
     except Exception as exc:  # noqa: BLE001
         result["status"] = "error"
@@ -267,7 +269,7 @@ class PreprocessingPipeline:
 
         Saves to: ``output_dir/mel/{dataset}/{subset}/{stem}.pt``
 
-        Each ``.pt`` file contains a tensor of shape ``(100, T)``.
+        Each ``.pt`` file contains a float16 tensor of shape ``(100, T)``.
 
         Parameters
         ----------
@@ -322,6 +324,21 @@ class PreprocessingPipeline:
         """Run all preprocessing stages in order.
 
         Returns the resampled manifest (with updated audio paths).
+
+        .. note::
+
+           Stages run sequentially (resample -> mel).  HuBERT feature
+           extraction (stage 3) is delegated to
+           :class:`~stylestream.data.hubert_extractor.HuBERTExtractor` which
+           requires GPU and is run separately.
+
+        .. todo::
+
+           Interleave stages so that mel computation can start as soon as the
+           first batch of resampled files is ready, rather than waiting for
+           the entire resample stage to finish.  This would improve wall-clock
+           time on large datasets at the cost of more complex orchestration
+           (e.g. a producer/consumer queue between stages).
         """
         resampled_manifest = self.run_resample(skip_existing=skip_existing)
         self.run_mel(input_manifest=resampled_manifest, skip_existing=skip_existing)
@@ -382,7 +399,7 @@ class PreprocessingPipeline:
                 mel_path = self.get_mel_path(utt)
                 if mel_path.exists():
                     try:
-                        mel = torch.load(mel_path, weights_only=True)
+                        mel = torch.load(mel_path, weights_only=True).float()
                         stats["mel_shapes"].add(tuple(mel.shape))
                         if torch.isnan(mel).any():
                             stats["nan_count"] += 1
