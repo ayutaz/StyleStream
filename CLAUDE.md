@@ -11,14 +11,14 @@ StyleStreamはUC Berkeley Speech Groupによるリアルタイムゼロショッ
 
 ## 現在の状態
 
-フェーズ0〜6完了。全コンポーネント実装済み。ALiBi付きConformer×6、FSQ [5,3,3]、CTC/seq2seq ASRデコーダ、学習パイプライン、推論API実装済み。16層DiT、CFM、adaLN-Zero、WavLM-TDNNスタイルエンコーダ、CFG実装済み。Causal Vocos（ConvNeXt×8 + ISTFT + GAN学習）実装済み。チャンク因果注意、KVキャッシュ、StreamingHuBERT、MSE蒸留、ストリーミング推論パイプライン実装済み。評価パイプライン（Whisper WER/CER、Resemblyzer S-SIM、ECAPA A-SIM、emotion2vec E-SIM、UTMOS、プロービング、バッチ推論、集計・可視化）実装済み。学習・前処理高速化実装済み（Flash Attention、torch.compile、Lion optimizer、GQA、Progressive Training、Min-SNR、FP16 HuBERT、GPUバッチメル等）。fast設定ファイル（configs/*/fast.yaml）で2-3倍速の実験設定利用可能。次は学習実行とチューニング。
+フェーズ0〜7完了。全コンポーネント実装済み。ALiBi付きConformer×6、FSQ [5,3,3]、CTC/seq2seq ASRデコーダ、学習パイプライン、推論API実装済み。16層DiT、CFM、adaLN-Zero、WavLM-TDNNスタイルエンコーダ、CFG実装済み。Causal Vocos（ConvNeXt×8 + ISTFT + GAN学習）実装済み。チャンク因果注意、KVキャッシュ、StreamingHuBERT、MSE蒸留、ストリーミング推論パイプライン実装済み。評価パイプライン（Whisper WER/CER、Resemblyzer S-SIM、ECAPA A-SIM、emotion2vec E-SIM、UTMOS、プロービング、バッチ推論、集計・可視化）実装済み。フェーズ7: 学習・前処理高速化実装済み（Flash Attention/SDPA、torch.compile、Lion optimizer、GQA、Progressive Training、Min-SNR、FP16 HuBERT、GPUバッチメル、パイプライン並列前処理等）。fast設定ファイル（configs/*/fast.yaml）で2-3倍速の実験設定利用可能。次は学習実行とチューニング。
 
 ## アーキテクチャ（論文より）
 
 StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → Vocoder**
 
 - **Destylizer**: HuBERT-Large第18層 → Conformerブロック×6 → FSQ [5,3,3]（コードブック45）。ASR損失で学習。50Hzで連続pre-quantization特徴量を出力。
-- **Stylizer**: 16層DiT（hidden 768, FFN 3072）とConditional Flow Matching (CFM)。WavLM-TDNNエンコーダ + adaLN-Zeroによるスタイル条件付け。スペクトログラムインペインティング目的関数。
+- **Stylizer**: 16層DiT（hidden 768, FFN 3072）とConditional Flow Matching (CFM)。WavLM-TDNNエンコーダ + adaLN-Zeroによるスタイル条件付け。スペクトログラムインペインティング目的関数。オプションでGQA（num_kv_heads=4）、Progressive Training、Min-SNR損失重み付けが利用可能。
 - **Vocoder**: Causal Vocos（ConvNextブロックをcausal convolutionに変更）。公式Vocosチェックポイントからwarm start。
 
 全コンポーネントが50Hzフレームレートで統一。メルスペクトログラム: 100ビン, ホップサイズ320, 16kHz。
@@ -86,7 +86,7 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
     - `pipeline.py` — StreamingInferencePipeline（E2E チャンク変換）
     - `distillation.py` — DistillationTrainer（MSE蒸留、差分LR）
   - `utils/` — 共通ユーティリティ（mel.py, audio.py, logging.py, checkpoint.py, hub.py）
-  - `training/` — 学習基盤（trainer.py, scheduler.py, distributed.py）
+  - `training/` — 学習基盤（trainer.py, scheduler.py, distributed.py）。Lion optimizer、torch.compile、CUDA最適化（cudnn.benchmark, TF32）組み込み済み
   - `eval/` — 評価パイプライン（実装済み）
     - `base.py` — BaseEvaluator/SimilarityEvaluator抽象基底（遅延ロード、コンテキストマネージャ）
     - `registry.py` — 評価メトリクスレジストリ（遅延インポート、エイリアス対応）
@@ -101,10 +101,19 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
     - `visualization.py` — レーダーチャート、棒グラフ、ヒートマップ、HTMLレポート
     - `probing.py` — 線形プロービング（話者/アクセント/感情スタイル漏洩分析）
   - `inference/` — 推論パイプライン
-- `configs/` — YAML設定ファイル（destylizer, stylizer, vocoder, data, eval）
+- `configs/` — YAML設定ファイル（destylizer, stylizer, vocoder, data, eval, streaming）
+  - `configs/destylizer/offline.yaml` — オフラインDestylizer設定
+  - `configs/destylizer/streaming.yaml` — ストリーミングDestylizer設定（チャンク因果注意）
   - `configs/destylizer/fast.yaml` — 高速実験設定（Conformer×4, FFN 2048）
+  - `configs/stylizer/offline.yaml` — オフラインStylizer設定
+  - `configs/stylizer/streaming.yaml` — ストリーミングStylizer設定（chunked_causal DiT）
   - `configs/stylizer/fast.yaml` — 高速実験設定（DiT×10, FFN 2048, Lion, progressive）
+  - `configs/vocoder/causal_vocos.yaml` — Causal Vocos設定
   - `configs/vocoder/fast.yaml` — 高速実験設定（intermediate 1024）
+  - `configs/streaming/distillation.yaml` — MSE蒸留学習設定
+  - `configs/streaming/stylizer.yaml` — ストリーミングStylizer学習設定
+  - `configs/data/libritts.yaml`, `lmg.yaml`, `emilia.yaml` — データセット設定
+  - `configs/eval/stylestream_test.yaml` — 評価設定
 - `scripts/` — エントリーポイントスクリプト
   - `download_libritts.py`, `download_esd.py`, `download_globe.py` — データセットダウンロード
   - `download_models.py` — 事前学習モデルダウンロード
@@ -118,7 +127,7 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
   - `streaming_inference.py` — ストリーミング推論デモ（実装済み）
   - `evaluate.py` — 評価CLI（メトリクス選択、論文ベースライン比較、可視化）（実装済み）
   - `inference.py` — 推論CLI（単一/バッチ、オフライン/ストリーミング）（実装済み）
-- `tests/` — 568テスト（mel, audio, text, manifest, datasets, conformer, fsq, asr_head, destylizer_model, rope, timestep_embedding, adaln_zero, dit, style_encoder, cfm, cfg, stylizer_model, vocoder_components, vocoder_model, streaming_attention, streaming_models, eval_pipeline）
+- `tests/` — 603テスト（mel, audio, text, manifest, datasets, conformer, fsq, asr_head, destylizer_model, rope, timestep_embedding, adaln_zero, dit, style_encoder, cfm, cfg, stylizer_model, vocoder_components, vocoder_model, streaming_attention, streaming_models, eval_pipeline）
 - `docs/` — 静的デモWebサイト + 論文分析 + マイルストーン
 - `pyproject.toml`, `CLAUDE.md`, `README.md`, `LICENSE`, `.gitignore`
 
@@ -146,7 +155,7 @@ uv run python scripts/preprocess_data.py --manifest data/manifests/libritts.csv 
 # 特徴量検証
 uv run python scripts/validate_features.py --manifest data/manifests/libritts.csv --processed-dir data/processed
 
-# テスト (568件)
+# テスト (603件)
 uv run pytest tests/ -v
 
 # Destylizer学習

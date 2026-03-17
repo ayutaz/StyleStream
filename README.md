@@ -40,6 +40,9 @@ Source Audio ---> [Destylizer] ---> Content ---> [Stylizer] ---> Mel ---> [Vocod
 - **Real-time streaming** -- End-to-end latency of ~1 second using chunked causal attention with 600ms chunks
 - **Multi-style transfer** -- Supports timbre, accent, and emotion conversion
 - **Streaming-optimized** -- KV caching, StreamingHuBERT, ring buffer pipeline, and MSE distillation for efficient inference
+- **Training optimizations** -- Flash Attention (SDPA), torch.compile, Lion optimizer, Grouped Query Attention (GQA), gradient checkpointing, progressive training, Min-SNR loss weighting
+- **Fast experimentation** -- Reduced-size configs (`configs/*/fast.yaml`) for 2-3x faster training; `--micro N` for rapid prototyping on small subsets
+- **Preprocessing acceleration** -- Merged resample+mel pipeline (80% I/O reduction), GPU-batched HuBERT extraction with duration sorting, FP16 mel/feature storage, pipeline parallelism
 
 ## Project Structure
 
@@ -54,7 +57,7 @@ stylestream/
   eval/                  # Whisper WER, Resemblyzer S-SIM, ECAPA A-SIM, emotion2vec E-SIM, UTMOS
   training/              # Base trainer, scheduler, distributed training
   utils/                 # Mel, audio, logging, checkpointing utilities
-configs/                 # YAML configs (destylizer, stylizer, vocoder, streaming, eval)
+configs/                 # YAML configs (destylizer, stylizer, vocoder, streaming, eval, + fast.yaml variants)
 scripts/                 # CLI entry points for training, inference, evaluation
 tests/                   # 568 tests across all modules
 ```
@@ -92,8 +95,14 @@ uv run python scripts/download_esd.py --output-dir data/raw/esd
 # Download pretrained feature extractors
 uv run python scripts/download_models.py --stage train
 
-# Preprocess (resampling + mel computation + HuBERT feature extraction)
+# Preprocess (merged resample + mel computation + HuBERT feature extraction)
 uv run python scripts/preprocess_data.py --manifest data/manifests/libritts.csv --output-dir data/processed
+
+# Preprocess with pipeline parallelism (overlap resample and mel stages)
+uv run python scripts/preprocess_data.py --manifest data/manifests/libritts.csv --output-dir data/processed --pipelined
+
+# Micro-dataset for rapid prototyping (stratified sample of N utterances)
+uv run python scripts/preprocess_data.py --manifest data/manifests/libritts.csv --output-dir data/processed --micro 1000
 
 # Validate extracted features
 uv run python scripts/validate_features.py --manifest data/manifests/libritts.csv --processed-dir data/processed
@@ -114,6 +123,21 @@ uv run python scripts/train_vocoder.py --config configs/vocoder/causal_vocos.yam
 # Stage 4: Streaming adaptation (MSE distillation + fine-tuning)
 uv run python scripts/train_streaming_destylizer.py --config configs/streaming/distillation.yaml
 uv run python scripts/train_streaming_stylizer.py --config configs/streaming/stylizer.yaml
+```
+
+### Fast Training
+
+Fast configs (`configs/*/fast.yaml`) use reduced model sizes and optimizations for 2-3x faster experimentation at ~85-90% of full quality. Changes include fewer layers, smaller FFN, Lion optimizer, torch.compile, and progressive training.
+
+```bash
+# Fast Destylizer (Conformer x4, FFN 2048, 50k steps)
+uv run python scripts/train_destylizer.py --config configs/destylizer/fast.yaml
+
+# Fast Stylizer (DiT x10, FFN 2048, Lion optimizer, progressive training, 200k steps)
+uv run python scripts/train_stylizer.py --config configs/stylizer/fast.yaml
+
+# Fast Vocoder (intermediate 1024, 50k steps)
+uv run python scripts/train_vocoder.py --config configs/vocoder/fast.yaml
 ```
 
 ### Inference
@@ -165,6 +189,42 @@ uv run pytest tests/test_conformer.py -v
 uv run pytest tests/test_cfm.py -v
 uv run pytest tests/test_streaming_models.py -v
 ```
+
+## Optimizations
+
+### Training
+
+| Optimization | Description |
+|---|---|
+| Flash Attention (SDPA) | `F.scaled_dot_product_attention` in Conformer and DiT for automatic Flash/memory-efficient kernel dispatch |
+| `torch.compile` | Optional compilation with `reduce-overhead` mode (enabled in fast configs via `compile_model: true`) |
+| Lion optimizer | Momentum-only optimizer with 2x memory efficiency vs AdamW (Chen et al., 2023) |
+| Grouped Query Attention | GQA in DiT blocks -- configurable `num_kv_heads` reduces KV memory while preserving quality |
+| Gradient checkpointing | Optional per-block checkpointing in DiT to reduce activation memory |
+| Progressive training | 3-stage curriculum: gradually increases segment length (3s -> 4.5s -> 6s) and mask ratio |
+| Style embedding cache | Pre-computed style embeddings to skip WavLM forward pass during Stylizer training |
+| ALiBi/RoPE caching | Positional encoding tensors cached and reused across forward passes |
+| Mixed precision (bf16) | All components trained in bf16; mel spectrograms and HuBERT features stored as float16 |
+| CUDA optimizations | `cudnn.benchmark`, TF32 matmul, `set_float32_matmul_precision("high")` enabled by default |
+
+### Preprocessing
+
+| Optimization | Description |
+|---|---|
+| Merged resample+mel | Single-pass pipeline eliminates intermediate WAV I/O (~80% I/O reduction) |
+| GPU-batched HuBERT | Duration-sorted batching (`batch_size=16`) minimizes padding waste on GPU |
+| FP16 storage | Mel spectrograms and HuBERT features stored as float16 (halves disk usage and I/O) |
+| Pipeline parallelism | `--pipelined` flag overlaps resample and mel stages across chunks |
+| Micro-dataset | `--micro N` creates stratified subsets for rapid architecture validation |
+| Manifest API | `sort_by_duration`, `shard`, `filter_valid`, `stratified_sample` for flexible data management |
+
+### Fast Configs
+
+| Config | Key Changes | Steps |
+|---|---|---|
+| `configs/destylizer/fast.yaml` | Conformer x4, FFN 2048, ASR decoder x2 | 50k (vs 80k) |
+| `configs/stylizer/fast.yaml` | DiT x10, FFN 2048, Lion, torch.compile, progressive | 200k (vs 320k) |
+| `configs/vocoder/fast.yaml` | intermediate_size 1024 | 50k (vs 80k) |
 
 ## Implementation Status
 

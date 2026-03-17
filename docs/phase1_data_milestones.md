@@ -222,7 +222,7 @@
 | **注意点** | フェーズ1の最終ゲート。全不具合をここで解決してからフェーズ2に進む。メルパラメータをこの段階で確定 |
 
 **実装ノート**:
-- [x] 114 tests total pass (mel:24, audio:14, text:28, manifest:17, datasets:28, config:3)
+- [x] 110 tests total pass (mel:10, audio:14, text:28, manifest:30, datasets:28)
 
 ---
 
