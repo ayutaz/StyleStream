@@ -493,7 +493,7 @@ class StyleEncoder(nn.Module):
         self,
         manifest: list[Utterance],
         output_dir: str | Path,
-        batch_size: int = 32,
+        batch_size: int = 64,
         device: str = "cuda",
     ) -> None:
         """Pre-compute style embeddings for all utterances and save to disk.
@@ -501,6 +501,10 @@ class StyleEncoder(nn.Module):
         Each embedding is saved as a ``.pt`` file named ``{utt.stem}.pt``
         containing a float16 tensor of shape ``(output_size,)``.  Existing
         files are skipped so the method is idempotent / resumable.
+
+        The model is cast to FP16 on GPU for faster extraction and lower
+        memory usage.  Original device and dtype are restored afterwards
+        so that training (which may need float32) is not affected.
 
         Parameters
         ----------
@@ -518,8 +522,14 @@ class StyleEncoder(nn.Module):
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        prev_device = next(self.parameters()).device
+        # Save original state so we can restore after extraction
+        original_device = next(self.parameters()).device
+        original_dtype = next(self.parameters()).dtype
+
+        # Cast to FP16 for faster extraction on GPU
         self.to(device)
+        if device != "cpu":
+            self.half()
         self.eval()
 
         # 5 seconds at 16 kHz, matching _STYLE_SAMPLES in stylizer_dataset.py
@@ -552,7 +562,9 @@ class StyleEncoder(nn.Module):
                 waveforms.append(wav)
 
             # Stack into batch: (B, style_samples)
-            batch_wav = torch.stack(waveforms, dim=0).to(device)
+            # Match model dtype (FP16 on GPU, FP32 on CPU)
+            model_dtype = next(self.parameters()).dtype
+            batch_wav = torch.stack(waveforms, dim=0).to(device=device, dtype=model_dtype)
 
             # Forward through style encoder
             embeddings = self.forward(batch_wav)  # (B, output_size)
@@ -571,7 +583,8 @@ class StyleEncoder(nn.Module):
                     skipped,
                 )
 
-        self.to(prev_device)
+        # Restore original device and dtype (e.g. float32 for training)
+        self.to(device=original_device, dtype=original_dtype)
         logger.info(
             "Style embedding caching complete: %d processed, %d skipped, "
             "saved to %s",

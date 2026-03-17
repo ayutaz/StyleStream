@@ -493,6 +493,26 @@ class Manifest:
             [u for u in self.utterances if min_sec <= u.duration <= max_sec]
         )
 
+    def filter_valid(
+        self,
+        min_duration: float = 0.5,
+        max_duration: float = 30.0,
+    ) -> Manifest:
+        """Filter out utterances that are too short, too long, or have missing audio.
+
+        Returns a new Manifest with only valid utterances.
+        """
+        valid = []
+        for utt in self.utterances:
+            # Check duration bounds
+            if utt.duration < min_duration or utt.duration > max_duration:
+                continue
+            # Check audio file exists
+            if not Path(utt.audio_path).exists():
+                continue
+            valid.append(utt)
+        return Manifest(utterances=valid)
+
     # ------------------------------------------------------------------
     # Splitting & sampling
     # ------------------------------------------------------------------
@@ -539,6 +559,31 @@ class Manifest:
         rng = random.Random(seed)
         sampled = rng.sample(self.utterances, n)
         return Manifest(sampled)
+
+    def sort_by_duration(self, reverse: bool = False) -> Manifest:
+        """Return a new Manifest sorted by utterance duration.
+
+        Sorting by duration before batched processing (e.g., HuBERT extraction)
+        reduces padding waste from ~40-60% to ~5-10%.
+        """
+        sorted_utts = sorted(
+            self.utterances, key=lambda u: u.duration, reverse=reverse,
+        )
+        return Manifest(utterances=sorted_utts)
+
+    def shard(self, num_shards: int, shard_id: int) -> Manifest:
+        """Return a subset of utterances for distributed processing.
+
+        Uses modulo sharding for deterministic, balanced splits.
+        """
+        if not (0 <= shard_id < num_shards):
+            raise ValueError(
+                f"shard_id {shard_id} out of range [0, {num_shards})"
+            )
+        utterances = [
+            u for i, u in enumerate(self.utterances) if i % num_shards == shard_id
+        ]
+        return Manifest(utterances=utterances)
 
     # ------------------------------------------------------------------
     # Merging

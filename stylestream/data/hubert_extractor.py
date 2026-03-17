@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import math
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, Sequence, runtime_checkable
@@ -151,7 +152,7 @@ class HuBERTExtractor:
         device: str = "cuda",
         layer: int = 18,
         max_audio_sec: float = 20.0,
-        batch_size: int = 8,
+        batch_size: int = 16,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.device = device
@@ -274,10 +275,12 @@ class HuBERTExtractor:
         self._load_model()
         assert self._extract_fn is not None
 
-        # Load all waveforms.
-        waveforms: list[torch.Tensor] = []
-        for p in audio_paths:
-            waveforms.append(load_audio(str(p), sr=_SAMPLE_RATE))
+        # Load all waveforms in parallel (I/O-bound, GIL is released).
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            waveforms = list(executor.map(
+                lambda p: load_audio(str(p), sr=_SAMPLE_RATE),
+                audio_paths,
+            ))
 
         # Separate long and short waveforms.
         short_indices: list[int] = []
@@ -340,6 +343,9 @@ class HuBERTExtractor:
         if not pending:
             logger.info("Nothing to extract -- all features already exist.")
             return
+
+        # Sort by duration to minimize padding waste within batches.
+        pending.sort(key=lambda u: u.duration)
 
         # Process in batches.
         for batch_start in tqdm(

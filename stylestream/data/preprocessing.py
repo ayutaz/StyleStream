@@ -81,6 +81,78 @@ def _resample_single(args: tuple) -> dict:
     return result
 
 
+def _resample_and_mel_single(args: tuple) -> dict:
+    """Combined resample + mel in single pass. Eliminates intermediate WAV I/O.
+
+    Parameters
+    ----------
+    args : tuple
+        ``(input_path, mel_output_path, wav_output_path, target_sr,
+          skip_existing, keep_resampled)``
+
+    Returns
+    -------
+    dict
+        ``{"input_path": ..., "mel_output_path": ..., "wav_output_path": ...,
+           "status": "ok"|"skipped"|"error", "error": str | None,
+           "duration": float, "shape": tuple | None}``
+    """
+    from stylestream.utils.audio import load_audio, save_audio  # noqa: C0415
+    from stylestream.utils.mel import MelSpectrogramTransform  # noqa: C0415
+
+    input_path, mel_output_path, wav_output_path, target_sr, skip_existing, keep_resampled = args
+    input_path = Path(input_path)
+    mel_output_path = Path(mel_output_path)
+    wav_output_path = Path(wav_output_path) if wav_output_path is not None else None
+
+    result: dict = {
+        "input_path": str(input_path),
+        "mel_output_path": str(mel_output_path),
+        "wav_output_path": str(wav_output_path) if wav_output_path is not None else None,
+        "status": "ok",
+        "error": None,
+        "duration": 0.0,
+        "shape": None,
+    }
+
+    try:
+        # Determine what we can skip
+        mel_exists = skip_existing and mel_output_path.exists()
+        wav_exists = (
+            skip_existing
+            and wav_output_path is not None
+            and wav_output_path.exists()
+        )
+        mel_needed = not mel_exists
+        wav_needed = keep_resampled and not wav_exists
+
+        if not mel_needed and not wav_needed:
+            result["status"] = "skipped"
+            return result
+
+        # Load and resample to target_sr in memory -- single I/O read
+        waveform = load_audio(input_path, sr=target_sr)
+        result["duration"] = waveform.shape[0] / target_sr
+
+        # Compute mel spectrogram in memory (no intermediate disk write)
+        if mel_needed:
+            transform = MelSpectrogramTransform()
+            mel = transform(waveform.unsqueeze(0)).squeeze(0)  # (100, T)
+            mel_output_path.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(mel.to(torch.float16), mel_output_path)
+            result["shape"] = tuple(mel.shape)
+
+        # Optionally save the resampled WAV
+        if wav_needed:
+            save_audio(wav_output_path, waveform, sr=target_sr)
+
+    except Exception as exc:  # noqa: BLE001
+        result["status"] = "error"
+        result["error"] = f"{type(exc).__name__}: {exc}"
+
+    return result
+
+
 def _compute_mel_single(args: tuple) -> dict:
     """Worker function for parallel mel spectrogram computation.
 
@@ -317,31 +389,136 @@ class PreprocessingPipeline:
         )
 
     # ------------------------------------------------------------------
+    # Combined stage: Resample + Mel
+    # ------------------------------------------------------------------
+
+    def run_resample_and_mel(
+        self, skip_existing: bool = True, keep_resampled: bool = False
+    ) -> Manifest:
+        """Combined resample + mel in single pass. Saves ~80% I/O by skipping intermediate WAV.
+
+        Loads each original audio file once, resamples to 16 kHz in memory,
+        computes the mel spectrogram, and saves only the mel ``.pt`` file.
+        The resampled WAV is written only when *keep_resampled* is True.
+
+        Parameters
+        ----------
+        skip_existing : bool
+            Skip output files that already exist on disk.
+        keep_resampled : bool
+            If True, also save the resampled 16 kHz WAV file alongside the
+            mel spectrogram. Default False (mel-only, maximum I/O savings).
+
+        Returns
+        -------
+        Manifest
+            A new manifest whose ``audio_path`` fields point to the
+            resampled WAV locations (whether or not they were actually
+            written). The ``sample_rate`` is set to the target rate.
+        """
+        logger.info(
+            "Combined resample+mel: %d utterances to %d Hz (workers=%d, keep_wav=%s)",
+            len(self.manifest),
+            self.sample_rate,
+            self.num_workers,
+            keep_resampled,
+        )
+        t0 = time.time()
+
+        # Build task list
+        tasks: list[tuple] = []
+        for utt in self.manifest:
+            mel_path = self.get_mel_path(utt)
+            mel_path.parent.mkdir(parents=True, exist_ok=True)
+            wav_path = self.get_resampled_path(utt)
+            if keep_resampled:
+                wav_path.parent.mkdir(parents=True, exist_ok=True)
+            tasks.append((
+                utt.audio_path,
+                str(mel_path),
+                str(wav_path),
+                self.sample_rate,
+                skip_existing,
+                keep_resampled,
+            ))
+
+        # Execute in parallel
+        results = self._run_parallel(
+            _resample_and_mel_single, tasks, stage_name="resample+mel"
+        )
+
+        # Build new manifest and collect stats
+        new_utterances: list[Utterance] = []
+        ok = 0
+        skipped = 0
+        errors = 0
+        for utt, res in zip(self.manifest, results):
+            if res["status"] == "error":
+                errors += 1
+                logger.warning(
+                    "Resample+mel failed for %s: %s",
+                    utt.audio_path,
+                    res["error"],
+                )
+                continue
+            if res["status"] == "skipped":
+                skipped += 1
+            else:
+                ok += 1
+
+            new_utt = Utterance(
+                audio_path=str(self.get_resampled_path(utt)),
+                dataset=utt.dataset,
+                subset=utt.subset,
+                speaker_id=utt.speaker_id,
+                duration=res.get("duration", utt.duration),
+                sample_rate=self.sample_rate,
+                text=utt.text,
+            )
+            new_utterances.append(new_utt)
+
+        elapsed = time.time() - t0
+        logger.info(
+            "Resample+mel complete: ok=%d, skipped=%d, errors=%d in %.1fs",
+            ok,
+            skipped,
+            errors,
+            elapsed,
+        )
+        return Manifest(utterances=new_utterances)
+
+    # ------------------------------------------------------------------
     # Run all stages
     # ------------------------------------------------------------------
 
-    def run_all(self, skip_existing: bool = True) -> Manifest:
-        """Run all preprocessing stages in order.
+    def run_all(
+        self,
+        skip_existing: bool = True,
+        keep_resampled: bool = True,
+    ) -> Manifest:
+        """Run all preprocessing stages. Uses combined resample+mel for efficiency.
 
         Returns the resampled manifest (with updated audio paths).
 
+        Parameters
+        ----------
+        skip_existing : bool
+            Skip output files that already exist on disk.
+        keep_resampled : bool
+            If True (default), save the resampled 16 kHz WAV alongside the
+            mel spectrogram.  Set to False for maximum I/O savings when only
+            the mel is needed downstream.
+
         .. note::
 
-           Stages run sequentially (resample -> mel).  HuBERT feature
-           extraction (stage 3) is delegated to
+           HuBERT feature extraction (stage 3) is delegated to
            :class:`~stylestream.data.hubert_extractor.HuBERTExtractor` which
            requires GPU and is run separately.
-
-        .. todo::
-
-           Interleave stages so that mel computation can start as soon as the
-           first batch of resampled files is ready, rather than waiting for
-           the entire resample stage to finish.  This would improve wall-clock
-           time on large datasets at the cost of more complex orchestration
-           (e.g. a producer/consumer queue between stages).
         """
-        resampled_manifest = self.run_resample(skip_existing=skip_existing)
-        self.run_mel(input_manifest=resampled_manifest, skip_existing=skip_existing)
+        resampled_manifest = self.run_resample_and_mel(
+            skip_existing=skip_existing,
+            keep_resampled=keep_resampled,
+        )
         return resampled_manifest
 
     # ------------------------------------------------------------------

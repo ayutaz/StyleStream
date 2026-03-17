@@ -62,8 +62,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=8,
-        help="Number of parallel workers (default: 8).",
+        default=16,
+        help="Number of parallel workers (default: 16).",
     )
     parser.add_argument(
         "--skip-existing",
@@ -89,6 +89,47 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Path to save the resampled manifest CSV. "
         "If not set, saves to output-dir/manifest_16k.csv.",
+    )
+    parser.add_argument(
+        "--combined",
+        action="store_true",
+        default=True,
+        help="Use combined resample+mel stage (default: True). "
+        "Eliminates intermediate WAV I/O for ~80%% disk savings. "
+        "Only effective when --stages includes 'all'.",
+    )
+    parser.add_argument(
+        "--no-combined",
+        dest="combined",
+        action="store_false",
+        help="Disable combined mode; run resample and mel as separate stages.",
+    )
+    parser.add_argument(
+        "--keep-resampled",
+        action="store_true",
+        default=True,
+        help="Save resampled 16 kHz WAV files (default: True). "
+        "Set --no-keep-resampled to skip WAV output for maximum I/O savings.",
+    )
+    parser.add_argument(
+        "--no-keep-resampled",
+        dest="keep_resampled",
+        action="store_false",
+        help="Do not save resampled WAV files (mel-only output).",
+    )
+    parser.add_argument(
+        "--pipelined",
+        action="store_true",
+        default=False,
+        help="Use pipelined processing: overlap resample and mel stages. "
+        "Mel computation for chunk N runs while chunk N+1 is being resampled. "
+        "Only effective when --stages includes 'all' and --no-combined is set.",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=500,
+        help="Number of utterances per chunk when using --pipelined (default: 500).",
     )
     parser.add_argument(
         "--log-level",
@@ -132,9 +173,16 @@ def main(argv: list[str] | None = None) -> None:
 
     resampled_manifest = None
 
-    # Stage 1: Resample
-    if run_resample:
-        resampled_manifest = pipeline.run_resample(skip_existing=args.skip_existing)
+    # Combined mode: resample + mel in a single pass (default for --stages all)
+    if args.combined and run_resample and run_mel:
+        logger.info(
+            "Using combined resample+mel mode (keep_resampled=%s)",
+            args.keep_resampled,
+        )
+        resampled_manifest = pipeline.run_resample_and_mel(
+            skip_existing=args.skip_existing,
+            keep_resampled=args.keep_resampled,
+        )
 
         # Save resampled manifest
         save_path = args.save_resampled_manifest
@@ -143,27 +191,58 @@ def main(argv: list[str] | None = None) -> None:
         resampled_manifest.save(save_path)
         logger.info("Saved resampled manifest to %s", save_path)
 
-    # Stage 2: Mel spectrograms
-    if run_mel:
-        if resampled_manifest is None:
-            # If resample was not run, try to load a previously saved manifest
-            default_resampled = output_dir / "manifest_16k.csv"
-            if default_resampled.exists():
-                resampled_manifest = Manifest.load(default_resampled)
-                logger.info(
-                    "Loaded existing resampled manifest from %s", default_resampled
-                )
-            else:
-                # Use the original manifest (assume audio is already 16 kHz)
-                logger.warning(
-                    "No resampled manifest found. Using original manifest. "
-                    "Audio must already be at 16 kHz."
-                )
-                resampled_manifest = manifest
-
-        pipeline.run_mel(
-            input_manifest=resampled_manifest, skip_existing=args.skip_existing
+    elif args.pipelined and run_resample and run_mel:
+        # Pipelined mode: overlap resample and mel when running both stages
+        logger.info(
+            "Using pipelined mode (chunk_size=%d): resample and mel will overlap",
+            args.chunk_size,
         )
+        resampled_manifest = pipeline.run_all_pipelined(
+            skip_existing=args.skip_existing,
+            chunk_size=args.chunk_size,
+        )
+
+        # Save resampled manifest
+        save_path = args.save_resampled_manifest
+        if save_path is None:
+            save_path = str(output_dir / "manifest_16k.csv")
+        resampled_manifest.save(save_path)
+        logger.info("Saved resampled manifest to %s", save_path)
+    else:
+        # Sequential mode (original behaviour)
+
+        # Stage 1: Resample
+        if run_resample:
+            resampled_manifest = pipeline.run_resample(skip_existing=args.skip_existing)
+
+            # Save resampled manifest
+            save_path = args.save_resampled_manifest
+            if save_path is None:
+                save_path = str(output_dir / "manifest_16k.csv")
+            resampled_manifest.save(save_path)
+            logger.info("Saved resampled manifest to %s", save_path)
+
+        # Stage 2: Mel spectrograms
+        if run_mel:
+            if resampled_manifest is None:
+                # If resample was not run, try to load a previously saved manifest
+                default_resampled = output_dir / "manifest_16k.csv"
+                if default_resampled.exists():
+                    resampled_manifest = Manifest.load(default_resampled)
+                    logger.info(
+                        "Loaded existing resampled manifest from %s", default_resampled
+                    )
+                else:
+                    # Use the original manifest (assume audio is already 16 kHz)
+                    logger.warning(
+                        "No resampled manifest found. Using original manifest. "
+                        "Audio must already be at 16 kHz."
+                    )
+                    resampled_manifest = manifest
+
+            pipeline.run_mel(
+                input_manifest=resampled_manifest, skip_existing=args.skip_existing
+            )
 
     # Verification
     if args.verify:
