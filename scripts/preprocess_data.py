@@ -132,6 +132,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Number of utterances per chunk when using --pipelined (default: 500).",
     )
     parser.add_argument(
+        "--micro",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Create a micro-dataset with N utterances via stratified sampling. "
+        "Selects a small, diverse subset across datasets, subsets, and speakers "
+        "for rapid prototyping.",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -157,6 +166,18 @@ def main(argv: list[str] | None = None) -> None:
 
     manifest = Manifest.load(manifest_path)
     logger.info("Loaded manifest: %d utterances", len(manifest))
+
+    # Apply stratified sampling for micro-dataset mode
+    if args.micro is not None:
+        logger.info(
+            "Micro-dataset mode: stratified sampling %d utterances", args.micro
+        )
+        manifest = manifest.stratified_sample(max_utterances=args.micro)
+        logger.info(
+            "Micro-dataset: %d utterances, %.1f hours",
+            len(manifest),
+            manifest.total_duration_hours(),
+        )
 
     # Create pipeline
     output_dir = Path(args.output_dir)

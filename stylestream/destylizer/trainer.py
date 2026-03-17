@@ -92,17 +92,30 @@ class DestylizerTrainer(BaseTrainer):
     # ------------------------------------------------------------------
 
     def build_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
-        """Build AdamW with paper-specified betas and weight decay."""
-        betas_cfg = getattr(self.config.training, "betas", [0.9, 0.98])
-        betas = tuple(betas_cfg) if not isinstance(betas_cfg, tuple) else betas_cfg
+        """Build optimizer (AdamW or Lion) with paper-specified hyperparameters."""
+        from stylestream.training.trainer import Lion
+
+        optimizer_name = getattr(self.config.training, "optimizer", "adamw").lower()
         weight_decay = getattr(self.config.training, "weight_decay", 0.01)
 
-        return torch.optim.AdamW(
-            model.parameters(),
-            lr=self.config.training.peak_lr,
-            betas=betas,
-            weight_decay=weight_decay,
-        )
+        if optimizer_name == "lion":
+            betas_cfg = getattr(self.config.training, "betas", [0.9, 0.99])
+            betas = tuple(betas_cfg) if not isinstance(betas_cfg, tuple) else betas_cfg
+            return Lion(
+                model.parameters(),
+                lr=self.config.training.peak_lr,
+                betas=betas,
+                weight_decay=weight_decay,
+            )
+        else:
+            betas_cfg = getattr(self.config.training, "betas", [0.9, 0.98])
+            betas = tuple(betas_cfg) if not isinstance(betas_cfg, tuple) else betas_cfg
+            return torch.optim.AdamW(
+                model.parameters(),
+                lr=self.config.training.peak_lr,
+                betas=betas,
+                weight_decay=weight_decay,
+            )
 
     # ------------------------------------------------------------------
     # Data

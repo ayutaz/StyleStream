@@ -527,11 +527,13 @@ class DistillationTrainer(BaseTrainer):
     # ------------------------------------------------------------------
 
     def build_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
-        """Build AdamW with separate LR for HuBERT parameters.
+        """Build optimizer with separate LR for HuBERT parameters.
 
         HuBERT parameters receive ``peak_lr * hubert_lr_scale`` (default
         1/10) to prevent catastrophic forgetting of the pre-trained
         acoustic features.
+
+        Supports AdamW (default) and Lion via ``config.training.optimizer``.
 
         Parameters
         ----------
@@ -541,12 +543,13 @@ class DistillationTrainer(BaseTrainer):
         Returns
         -------
         torch.optim.Optimizer
-            AdamW with two parameter groups.
+            Optimizer with two parameter groups.
         """
         hubert_lr_scale = getattr(
             self.config.distillation, "hubert_lr_scale", 0.1,
         )
         peak_lr = self.config.training.peak_lr
+        weight_decay = getattr(self.config.training, "weight_decay", 0.01)
 
         hubert_params: list[nn.Parameter] = []
         other_params: list[nn.Parameter] = []
@@ -567,13 +570,26 @@ class DistillationTrainer(BaseTrainer):
             peak_lr * hubert_lr_scale,
         )
 
+        param_groups = [
+            {"params": other_params, "lr": peak_lr},
+            {"params": hubert_params, "lr": peak_lr * hubert_lr_scale},
+        ]
+
+        optimizer_name = getattr(self.config.training, "optimizer", "adamw").lower()
+
+        if optimizer_name == "lion":
+            from stylestream.training.trainer import Lion
+
+            return Lion(
+                param_groups,
+                betas=(0.9, 0.99),
+                weight_decay=weight_decay,
+            )
+
         return torch.optim.AdamW(
-            [
-                {"params": other_params, "lr": peak_lr},
-                {"params": hubert_params, "lr": peak_lr * hubert_lr_scale},
-            ],
+            param_groups,
             betas=(0.9, 0.999),
-            weight_decay=0.01,
+            weight_decay=weight_decay,
         )
 
     # ------------------------------------------------------------------

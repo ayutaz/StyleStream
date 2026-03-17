@@ -176,6 +176,7 @@ class Stylizer(nn.Module):
         # --- CFM (no learnable parameters) ---
         self.cfm = ConditionalFlowMatching(
             sigma_min=getattr(cfm_cfg, "sigma_min", 1e-5),
+            snr_gamma=getattr(cfm_cfg, "snr_gamma", 0.0),
         )
 
         # --- CFG (not an nn.Module, no learnable parameters) ---
@@ -221,6 +222,7 @@ class Stylizer(nn.Module):
         # --- CFM ---
         self.cfm = ConditionalFlowMatching(
             sigma_min=kw.get("sigma_min", 1e-5),
+            snr_gamma=kw.get("snr_gamma", 0.0),
         )
 
         # --- CFG ---
@@ -361,9 +363,9 @@ class Stylizer(nn.Module):
             x_t, t, content_dropped, context_dropped, style_dropped
         )  # (B, T, mel_dim)
 
-        # 7. Compute masked CFM loss.
+        # 7. Compute masked CFM loss (with Min-SNR weighting when enabled).
         loss = self.cfm.compute_loss(
-            velocity_pred, mel, x_0, mask
+            velocity_pred, mel, x_0, mask, t=t
         )  # scalar
 
         return {

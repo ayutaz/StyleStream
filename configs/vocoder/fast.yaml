@@ -1,6 +1,8 @@
 # @package _global_
-# StyleStream Vocoder — Causal Vocos config
-# Standard Vocos backbone with ConvNext blocks replaced by causal convolutions.
+# StyleStream Vocoder — Fast Causal Vocos config
+# Based on causal_vocos.yaml with reduced model size for rapid experimentation.
+# Changes: intermediate_size 1024 (was 1536), 50k steps (was 80k),
+#          val_interval 5000 (was 2000).
 
 defaults:
   - _self_
@@ -9,9 +11,9 @@ defaults:
 model:
   name: "causal_vocos"
   hidden_size: 512
-  num_layers: 8         # ConvNext blocks
-  intermediate_size: 1536
-  causal: true          # causal convolutions throughout
+  num_layers: 8                # ConvNext blocks
+  intermediate_size: 1024      # FAST: reduced from 1536
+  causal: true                 # causal convolutions throughout
   init_checkpoint: "charactr/vocos-mel-24khz"  # official Vocos; warm start
 
 # ── Mel spectrogram (must match stylizer exactly) ─────────────────
@@ -31,17 +33,17 @@ discriminator:
 
 # ── Loss weights ──────────────────────────────────────────────────
 loss:
-  reconstruction: 45.0      # L1 mel reconstruction
-  gan_generator: 1.0        # adversarial (generator side)
-  gan_discriminator: 1.0    # adversarial (discriminator side)
-  feature_matching: 2.0     # multi-scale feature matching
+  reconstruction: 45.0         # L1 mel reconstruction
+  gan_generator: 1.0           # adversarial (generator side)
+  gan_discriminator: 1.0       # adversarial (discriminator side)
+  feature_matching: 2.0        # multi-scale feature matching
 
 # ── Training ──────────────────────────────────────────────────────
 training:
-  steps: 80000
-  batch_size: 64            # per-GPU
+  steps: 50000                 # FAST: reduced from 80000
+  batch_size: 64               # per-GPU
   num_gpus: 2
-  segment_length: 2         # seconds
+  segment_length: 2            # seconds
   optimizer: "adamw"
   peak_lr: 2.0e-4
   min_lr: 1.0e-6
@@ -52,8 +54,7 @@ training:
   mixed_precision: "bf16"
   log_interval: 100
   save_interval: 10000
-  val_interval: 5000
-  compile_model: true
+  val_interval: 5000           # FAST: reduced frequency from 2000
   seed: 42
 
 # ── Data ──────────────────────────────────────────────────────────

@@ -139,6 +139,40 @@ class EarlyStopping:
         return self.should_stop
 
 
+class Lion(torch.optim.Optimizer):
+    """Lion optimizer (Chen et al., 2023). Momentum-only, 2x memory efficient vs AdamW."""
+
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["exp_avg"] = torch.zeros_like(p)
+                exp_avg = state["exp_avg"]
+                beta1, beta2 = group["betas"]
+                # Weight decay
+                if group["weight_decay"] != 0:
+                    p.mul_(1 - group["lr"] * group["weight_decay"])
+                # Update step: sign of interpolation between momentum and gradient
+                update = exp_avg.mul(beta1).add(grad, alpha=1 - beta1)
+                p.add_(update.sign_(), alpha=-group["lr"])
+                # Update momentum
+                exp_avg.mul_(beta2).add_(grad, alpha=1 - beta2)
+        return loss
+
+
 class BaseTrainer(ABC):
     """Abstract base trainer for StyleStream component training.
 
@@ -260,13 +294,22 @@ class BaseTrainer(ABC):
     # ------------------------------------------------------------------
 
     def build_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
-        """Build the AdamW optimiser (paper default)."""
-        return torch.optim.AdamW(
-            model.parameters(),
-            lr=self.config.training.peak_lr,
-            betas=(0.9, 0.999),
-            weight_decay=0.01,
-        )
+        """Build the optimizer based on config (AdamW or Lion)."""
+        optimizer_name = getattr(self.config.training, "optimizer", "adamw").lower()
+        if optimizer_name == "lion":
+            return Lion(
+                model.parameters(),
+                lr=self.config.training.peak_lr,
+                betas=(0.9, 0.99),
+                weight_decay=0.01,
+            )
+        else:
+            return torch.optim.AdamW(
+                model.parameters(),
+                lr=self.config.training.peak_lr,
+                betas=(0.9, 0.999),
+                weight_decay=0.01,
+            )
 
     def build_scheduler(
         self, optimizer: torch.optim.Optimizer

@@ -279,6 +279,143 @@ class TestManifest:
 
 
 # ---------------------------------------------------------------------------
+# Stratified sample tests
+# ---------------------------------------------------------------------------
+
+
+def _make_diverse_utterances() -> list[Utterance]:
+    """Create a diverse set of utterances spanning multiple datasets, subsets,
+    and speakers for testing stratified_sample."""
+    utts: list[Utterance] = []
+    datasets_subsets = [
+        ("libritts", "train-clean-100"),
+        ("libritts", "train-clean-360"),
+        ("esd", "happy"),
+        ("esd", "angry"),
+        ("globe", "british"),
+        ("globe", "indian"),
+    ]
+    idx = 0
+    for ds, sub in datasets_subsets:
+        for spk_num in range(1, 6):  # 5 speakers per group
+            spk = f"{ds}_spk{spk_num:03d}"
+            for utt_num in range(20):  # 20 utterances per speaker
+                duration = 1.5 + (utt_num % 12)  # 1.5 .. 12.5
+                utts.append(
+                    Utterance(
+                        audio_path=f"data/{ds}/{sub}/{spk}/utt_{idx:05d}.wav",
+                        dataset=ds,
+                        subset=sub,
+                        speaker_id=spk,
+                        duration=duration,
+                        sample_rate=16000,
+                        text=f"Utterance {idx}",
+                    )
+                )
+                idx += 1
+    return utts  # 6 groups x 5 speakers x 20 utts = 600 total
+
+
+class TestStratifiedSample:
+    """Tests for the stratified_sample method."""
+
+    def test_respects_max_utterances(self) -> None:
+        """Result should not exceed max_utterances."""
+        m = Manifest(utterances=_make_diverse_utterances())
+        sampled = m.stratified_sample(max_utterances=60)
+        assert len(sampled) <= 60
+
+    def test_covers_all_groups(self) -> None:
+        """The sample should include utterances from every (dataset, subset)."""
+        m = Manifest(utterances=_make_diverse_utterances())
+        sampled = m.stratified_sample(max_utterances=60)
+
+        groups = {(u.dataset, u.subset) for u in sampled}
+        expected = {
+            ("libritts", "train-clean-100"),
+            ("libritts", "train-clean-360"),
+            ("esd", "happy"),
+            ("esd", "angry"),
+            ("globe", "british"),
+            ("globe", "indian"),
+        }
+        assert groups == expected
+
+    def test_even_distribution(self) -> None:
+        """Groups should receive roughly equal counts."""
+        m = Manifest(utterances=_make_diverse_utterances())
+        sampled = m.stratified_sample(max_utterances=60)
+
+        from collections import Counter
+
+        counts = Counter((u.dataset, u.subset) for u in sampled)
+        # 60 / 6 groups = 10 per group
+        assert all(c == 10 for c in counts.values())
+
+    def test_per_speaker_cap(self) -> None:
+        """Per-speaker cap should be enforced within each (dataset, subset) group."""
+        m = Manifest(utterances=_make_diverse_utterances())
+        sampled = m.stratified_sample(max_utterances=120, max_per_speaker=3)
+
+        from collections import Counter
+
+        # The cap applies per (group, speaker), so count within each group
+        group_speaker_counts: Counter[tuple[str, str, str]] = Counter()
+        for u in sampled:
+            group_speaker_counts[(u.dataset, u.subset, u.speaker_id)] += 1
+
+        assert all(c <= 3 for c in group_speaker_counts.values())
+
+    def test_duration_filtering(self) -> None:
+        """Utterances outside the duration range should be excluded."""
+        m = Manifest(utterances=_make_diverse_utterances())
+        sampled = m.stratified_sample(
+            max_utterances=200, min_duration=3.0, max_duration=8.0,
+        )
+        for u in sampled:
+            assert 3.0 <= u.duration <= 8.0
+
+    def test_reproducibility(self) -> None:
+        """Same seed should produce identical results."""
+        m = Manifest(utterances=_make_diverse_utterances())
+        s1 = m.stratified_sample(max_utterances=30, seed=123)
+        s2 = m.stratified_sample(max_utterances=30, seed=123)
+        assert [u.audio_path for u in s1] == [u.audio_path for u in s2]
+
+    def test_different_seed_gives_different_result(self) -> None:
+        """Different seeds should (almost certainly) produce different results."""
+        m = Manifest(utterances=_make_diverse_utterances())
+        s1 = m.stratified_sample(max_utterances=30, seed=1)
+        s2 = m.stratified_sample(max_utterances=30, seed=2)
+        paths1 = {u.audio_path for u in s1}
+        paths2 = {u.audio_path for u in s2}
+        assert paths1 != paths2
+
+    def test_empty_manifest(self) -> None:
+        """Stratified sample of an empty manifest returns empty."""
+        m = Manifest()
+        sampled = m.stratified_sample(max_utterances=100)
+        assert len(sampled) == 0
+
+    def test_max_utterances_exceeds_available(self) -> None:
+        """If max_utterances > available after per-speaker cap, return all that survive."""
+        utts = _make_diverse_utterances()
+        m = Manifest(utterances=utts)
+        # default max_per_speaker=10 caps 20 utts/speaker to 10
+        # 6 groups x 5 speakers x 10 = 300 after capping
+        sampled = m.stratified_sample(max_utterances=10000)
+        assert len(sampled) == 300
+
+    def test_all_filtered_out(self) -> None:
+        """If no utterances pass duration filter, return empty."""
+        m = Manifest(utterances=_make_diverse_utterances())
+        sampled = m.stratified_sample(
+            max_utterances=100, min_duration=100.0, max_duration=200.0,
+        )
+        assert len(sampled) == 0
+
+
+# ---------------------------------------------------------------------------
 # Utterance tests
 # ---------------------------------------------------------------------------
 

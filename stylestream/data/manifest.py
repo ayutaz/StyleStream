@@ -560,6 +560,100 @@ class Manifest:
         sampled = rng.sample(self.utterances, n)
         return Manifest(sampled)
 
+    def stratified_sample(
+        self,
+        max_utterances: int = 1000,
+        max_per_speaker: int = 10,
+        min_duration: float = 1.0,
+        max_duration: float = 15.0,
+        seed: int = 42,
+    ) -> Manifest:
+        """Create a small, diverse subset for rapid prototyping.
+
+        Samples utterances evenly across ``(dataset, subset)`` groups,
+        limiting per-speaker count to ensure diversity.  Useful for
+        validating architecture and training pipelines in hours instead
+        of days.
+
+        Parameters
+        ----------
+        max_utterances:
+            Maximum total utterances in the returned manifest.
+        max_per_speaker:
+            Maximum utterances kept per speaker within each group.
+        min_duration:
+            Minimum utterance duration in seconds (inclusive).
+        max_duration:
+            Maximum utterance duration in seconds (inclusive).
+        seed:
+            Random seed for reproducibility.
+
+        Returns
+        -------
+        Manifest
+            A new manifest with at most *max_utterances* entries.
+        """
+        rng = random.Random(seed)
+
+        # Step 1: filter by duration bounds
+        filtered = [
+            u for u in self.utterances
+            if min_duration <= u.duration <= max_duration
+        ]
+
+        # Step 2: group by (dataset, subset)
+        groups: dict[tuple[str, str], list[Utterance]] = defaultdict(list)
+        for u in filtered:
+            groups[(u.dataset, u.subset)].append(u)
+
+        if not groups:
+            return Manifest()
+
+        # Step 3: within each group, limit per-speaker to max_per_speaker
+        capped_groups: dict[tuple[str, str], list[Utterance]] = {}
+        for key, utts in groups.items():
+            by_speaker: dict[str, list[Utterance]] = defaultdict(list)
+            for u in utts:
+                by_speaker[u.speaker_id].append(u)
+
+            capped: list[Utterance] = []
+            for speaker_id in sorted(by_speaker.keys()):
+                speaker_utts = by_speaker[speaker_id]
+                if len(speaker_utts) > max_per_speaker:
+                    speaker_utts = rng.sample(speaker_utts, max_per_speaker)
+                capped.extend(speaker_utts)
+
+            rng.shuffle(capped)
+            capped_groups[key] = capped
+
+        # Step 4: distribute max_utterances evenly across groups
+        n_groups = len(capped_groups)
+        per_group = max_utterances // n_groups
+        remainder = max_utterances % n_groups
+
+        # Sort keys for deterministic ordering
+        sorted_keys = sorted(capped_groups.keys())
+
+        result: list[Utterance] = []
+        for i, key in enumerate(sorted_keys):
+            pool = capped_groups[key]
+            # Give one extra to the first `remainder` groups
+            quota = per_group + (1 if i < remainder else 0)
+            if quota >= len(pool):
+                result.extend(pool)
+            else:
+                result.extend(rng.sample(pool, quota))
+
+        logger.info(
+            "Stratified sample: %d utterances from %d groups "
+            "(%d speakers, %.1f hours)",
+            len(result),
+            n_groups,
+            len({u.speaker_id for u in result if u.speaker_id}),
+            sum(u.duration for u in result) / 3600.0,
+        )
+        return Manifest(result)
+
     def sort_by_duration(self, reverse: bool = False) -> Manifest:
         """Return a new Manifest sorted by utterance duration.
 

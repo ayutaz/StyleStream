@@ -93,7 +93,9 @@ class StyleEncoderConfig:
 @dataclass
 class CFMConfig:
     nfe: int = 16  # number of function evaluations (ODE steps)
+    val_nfe: int = 0  # NFE for validation sampling. 0 = skip sampling (loss-only)
     sampling: str = "euler"
+    snr_gamma: float = 5.0  # Min-SNR clipping value. 0 disables Min-SNR weighting.
 
 
 @dataclass
@@ -109,6 +111,7 @@ class DiTConfig:
     num_layers: int = 16
     hidden_size: int = 768
     ffn_size: int = 3072
+    num_kv_heads: int = 0  # 0 means use full MHA (num_heads). Set to 4 for GQA.
     gradient_checkpointing: bool = False
 
 

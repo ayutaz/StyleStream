@@ -206,7 +206,11 @@ class VocoderTrainer(BaseTrainer):
     # ------------------------------------------------------------------
 
     def build_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
-        """Build AdamW optimizer for the generator.
+        """Build optimizer (AdamW or Lion) for the generator.
+
+        Respects ``config.training.optimizer`` to select between AdamW
+        and Lion.  Lion uses betas=(0.9, 0.99) by default; AdamW uses
+        betas=(0.9, 0.999).
 
         Parameters
         ----------
@@ -216,26 +220,45 @@ class VocoderTrainer(BaseTrainer):
         Returns
         -------
         torch.optim.Optimizer
-            Configured AdamW optimizer.
+            Configured optimizer.
         """
-        betas_cfg = getattr(self.config.training, "betas", [0.9, 0.999])
-        betas = tuple(betas_cfg) if not isinstance(betas_cfg, tuple) else betas_cfg
+        from stylestream.training.trainer import Lion
+
+        optimizer_name = getattr(self.config.training, "optimizer", "adamw").lower()
         weight_decay = getattr(self.config.training, "weight_decay", 0.01)
 
-        return torch.optim.AdamW(
-            model.parameters(),
-            lr=self.config.training.peak_lr,
-            betas=betas,
-            weight_decay=weight_decay,
-        )
+        if optimizer_name == "lion":
+            betas_cfg = getattr(self.config.training, "betas", [0.9, 0.99])
+            betas = tuple(betas_cfg) if not isinstance(betas_cfg, tuple) else betas_cfg
+            return Lion(
+                model.parameters(),
+                lr=self.config.training.peak_lr,
+                betas=betas,
+                weight_decay=weight_decay,
+            )
+        else:
+            betas_cfg = getattr(self.config.training, "betas", [0.9, 0.999])
+            betas = tuple(betas_cfg) if not isinstance(betas_cfg, tuple) else betas_cfg
+            return torch.optim.AdamW(
+                model.parameters(),
+                lr=self.config.training.peak_lr,
+                betas=betas,
+                weight_decay=weight_decay,
+            )
 
     def build_discriminator_optimizer(
         self, discriminator: nn.Module
     ) -> torch.optim.Optimizer:
         """Build a separate AdamW optimizer for the discriminator.
 
-        Uses the same learning rate and hyperparameters as the generator
-        optimizer unless overridden via ``config.training.discriminator_lr``.
+        The discriminator always uses AdamW regardless of the generator's
+        optimizer setting.  AdamW provides more stable GAN training for
+        the discriminator due to its adaptive second-moment estimates,
+        whereas Lion's sign-based updates can cause oscillation in the
+        adversarial min-max game.
+
+        Uses the same learning rate as the generator unless overridden
+        via ``config.training.discriminator_lr``.
 
         Parameters
         ----------
@@ -254,6 +277,13 @@ class VocoderTrainer(BaseTrainer):
         betas_cfg = getattr(self.config.training, "betas", [0.9, 0.999])
         betas = tuple(betas_cfg) if not isinstance(betas_cfg, tuple) else betas_cfg
         weight_decay = getattr(self.config.training, "weight_decay", 0.01)
+
+        optimizer_name = getattr(self.config.training, "optimizer", "adamw").lower()
+        if optimizer_name == "lion":
+            self.logger.info(
+                "Generator uses Lion, but discriminator uses AdamW "
+                "for GAN training stability."
+            )
 
         return torch.optim.AdamW(
             discriminator.parameters(),
@@ -367,6 +397,24 @@ class VocoderTrainer(BaseTrainer):
         self.d_scheduler = d_scheduler
         self._loss_fn = loss_fn
 
+        # 2b. Optional torch.compile ------------------------------------
+        # Compile generator and discriminator separately.  We use
+        # mode="default" rather than "reduce-overhead" because the
+        # latter relies on CUDA graphs, which are incompatible with
+        # the alternating gradient-enable/disable pattern of GAN
+        # training (D frozen during G step and vice versa).
+        if getattr(self.config.training, "compile_model", False) and hasattr(
+            torch, "compile"
+        ):
+            self.logger.info(
+                "Compiling generator and discriminator with "
+                "torch.compile(mode='default')"
+            )
+            self.model = torch.compile(self.model, mode="default")
+            self.discriminator = torch.compile(
+                self.discriminator, mode="default"
+            )
+
         # 3. Optionally resume from checkpoint --------------------------
         if resume_from is not None:
             self.load_checkpoint(Path(resume_from))
@@ -380,6 +428,10 @@ class VocoderTrainer(BaseTrainer):
         )
 
         # 5. GAN training loop ------------------------------------------
+        # Use self.model / self.discriminator which may have been wrapped
+        # by torch.compile in step 2b above.
+        generator = self.model
+        discriminator = self.discriminator
         generator.train()
         discriminator.train()
         data_iter = _cycle(dataloader)

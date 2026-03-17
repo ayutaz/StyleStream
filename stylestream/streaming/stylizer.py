@@ -71,6 +71,12 @@ class StreamingDiTBlock(nn.Module):
         Dropout rate.  Default 0.1.
     chunk_size : int
         Number of frames per chunk (30 = 600ms @ 50Hz).  Default 30.
+    num_kv_heads : int
+        Number of key/value heads for Grouped Query Attention (GQA).
+        When ``0`` (default) or equal to ``num_heads``, standard
+        multi-head attention is used.  When ``0 < num_kv_heads < num_heads``,
+        K/V projections produce fewer heads and the results are
+        repeated to match the number of Q heads.
     """
 
     def __init__(
@@ -80,6 +86,7 @@ class StreamingDiTBlock(nn.Module):
         ffn_size: int = 3072,
         dropout: float = 0.1,
         chunk_size: int = 30,
+        num_kv_heads: int = 0,
     ) -> None:
         super().__init__()
 
@@ -94,14 +101,32 @@ class StreamingDiTBlock(nn.Module):
         self.ffn_size = ffn_size
         self.chunk_size = chunk_size
 
+        # -- GQA configuration --
+        self.num_kv_heads = num_kv_heads if num_kv_heads > 0 else num_heads
+        self.use_gqa = self.num_kv_heads < self.num_heads
+
+        if self.use_gqa:
+            assert self.num_heads % self.num_kv_heads == 0, (
+                f"num_heads ({self.num_heads}) must be divisible by "
+                f"num_kv_heads ({self.num_kv_heads})"
+            )
+            self.kv_repeat_factor = self.num_heads // self.num_kv_heads
+
         # -- adaLN-Zero: generates 6 modulation vectors from c --
         self.adaln = AdaLNZero(hidden_size)
 
         # -- Self-Attention sub-layer --
         self.attn_modulation = AdaLNModulation(hidden_size)
 
-        # Fused Q/K/V projection
-        self.qkv_proj = nn.Linear(hidden_size, 3 * hidden_size, bias=True)
+        # Q/K/V projections: separate when using GQA, fused otherwise
+        if self.use_gqa:
+            self.q_proj = nn.Linear(hidden_size, hidden_size, bias=True)
+            self.kv_proj = nn.Linear(
+                hidden_size, 2 * self.head_dim * self.num_kv_heads, bias=True
+            )
+        else:
+            # Fused Q/K/V projection (standard MHA)
+            self.qkv_proj = nn.Linear(hidden_size, 3 * hidden_size, bias=True)
         # Output projection
         self.out_proj = nn.Linear(hidden_size, hidden_size, bias=True)
         self.attn_dropout = nn.Dropout(dropout)
@@ -124,7 +149,7 @@ class StreamingDiTBlock(nn.Module):
         rope_sin: Tensor,
         attn_mask: Tensor | None = None,
     ) -> Tensor:
-        """Multi-head self-attention with RoPE and chunked causal mask.
+        """Multi-head self-attention with RoPE, optional GQA, and chunked causal mask.
 
         Parameters
         ----------
@@ -146,14 +171,28 @@ class StreamingDiTBlock(nn.Module):
         H = self.num_heads
         D = self.head_dim
 
-        # Project to Q, K, V
-        qkv = self.qkv_proj(x)  # (B, T, 3 * hidden_size)
-        qkv = qkv.reshape(B, T, 3, H, D)
-        qkv = qkv.permute(2, 0, 3, 1, 4)  # (3, B, H, T, D)
-        q, k, v = qkv.unbind(dim=0)  # each (B, H, T, D)
+        if self.use_gqa:
+            # -- GQA path --
+            H_kv = self.num_kv_heads
 
-        # Apply RoPE to Q and K only (not V)
-        q, k = apply_rotary_pos_emb(q, k, rope_cos, rope_sin)
+            q = self.q_proj(x).reshape(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
+
+            kv = self.kv_proj(x).reshape(B, T, 2, H_kv, D)
+            kv = kv.permute(2, 0, 3, 1, 4)  # (2, B, H_kv, T, D)
+            k, v = kv.unbind(0)
+
+            q, k = apply_rotary_pos_emb(q, k, rope_cos, rope_sin)
+
+            k = k.repeat_interleave(self.kv_repeat_factor, dim=1)  # (B, H, T, D)
+            v = v.repeat_interleave(self.kv_repeat_factor, dim=1)
+        else:
+            # -- Standard MHA path --
+            qkv = self.qkv_proj(x)  # (B, T, 3 * hidden_size)
+            qkv = qkv.reshape(B, T, 3, H, D)
+            qkv = qkv.permute(2, 0, 3, 1, 4)  # (3, B, H, T, D)
+            q, k, v = qkv.unbind(dim=0)  # each (B, H, T, D)
+
+            q, k = apply_rotary_pos_emb(q, k, rope_cos, rope_sin)
 
         # Scaled dot-product attention with chunked causal mask
         attn_output = F.scaled_dot_product_attention(
@@ -181,6 +220,10 @@ class StreamingDiTBlock(nn.Module):
         plus the current chunk.  RoPE embeddings must be pre-offset to
         the correct global positions.
 
+        When GQA is enabled, the KV cache stores the *expanded* K/V
+        (with heads already repeated to match Q), so that cache
+        concatenation works without extra bookkeeping.
+
         Parameters
         ----------
         x : Tensor
@@ -189,7 +232,8 @@ class StreamingDiTBlock(nn.Module):
             Shape ``(1, 1, T_chunk, head_dim)`` -- RoPE for the current
             chunk's positions (already offset by cache length).
         kv_cache : tuple[Tensor, Tensor] or None
-            Past ``(K, V)`` each ``(B, H, T_past, D)``.
+            Past ``(K, V)`` each ``(B, H, T_past, D)`` where H is
+            ``num_heads`` (already expanded for GQA).
 
         Returns
         -------
@@ -202,16 +246,33 @@ class StreamingDiTBlock(nn.Module):
         H = self.num_heads
         D = self.head_dim
 
-        # Project to Q, K, V
-        qkv = self.qkv_proj(x)  # (B, T, 3 * hidden_size)
-        qkv = qkv.reshape(B, T, 3, H, D)
-        qkv = qkv.permute(2, 0, 3, 1, 4)  # (3, B, H, T, D)
-        q, k, v = qkv.unbind(dim=0)  # each (B, H, T, D)
+        if self.use_gqa:
+            # -- GQA path --
+            H_kv = self.num_kv_heads
 
-        # Apply RoPE with global position offsets
-        q, k = apply_rotary_pos_emb(q, k, rope_cos, rope_sin)
+            q = self.q_proj(x).reshape(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
 
-        # Concatenate with cached K, V
+            kv = self.kv_proj(x).reshape(B, T, 2, H_kv, D)
+            kv = kv.permute(2, 0, 3, 1, 4)  # (2, B, H_kv, T, D)
+            k, v = kv.unbind(0)
+
+            # Apply RoPE before expansion
+            q, k = apply_rotary_pos_emb(q, k, rope_cos, rope_sin)
+
+            # Expand KV heads to match Q heads before caching
+            k = k.repeat_interleave(self.kv_repeat_factor, dim=1)  # (B, H, T, D)
+            v = v.repeat_interleave(self.kv_repeat_factor, dim=1)
+        else:
+            # -- Standard MHA path --
+            qkv = self.qkv_proj(x)  # (B, T, 3 * hidden_size)
+            qkv = qkv.reshape(B, T, 3, H, D)
+            qkv = qkv.permute(2, 0, 3, 1, 4)  # (3, B, H, T, D)
+            q, k, v = qkv.unbind(dim=0)  # each (B, H, T, D)
+
+            # Apply RoPE with global position offsets
+            q, k = apply_rotary_pos_emb(q, k, rope_cos, rope_sin)
+
+        # Concatenate with cached K, V (both stored with full num_heads)
         if kv_cache is not None:
             past_k, past_v = kv_cache
             k_full = torch.cat([past_k, k], dim=2)  # (B, H, T_past + T, D)
@@ -369,6 +430,10 @@ class StreamingDiT(nn.Module):
         Content feature dimension.  Default 768.
     dropout : float
         Dropout rate.  Default 0.0.
+    num_kv_heads : int
+        Number of key/value heads for Grouped Query Attention (GQA).
+        When ``0`` (default) or equal to ``num_heads``, standard MHA
+        is used.
     chunk_size : int
         Chunk size in frames (30 = 600ms @ 50Hz).  Default 30.
     max_cache_frames : int
@@ -386,6 +451,7 @@ class StreamingDiT(nn.Module):
         mel_dim: int = 100,
         content_dim: int = 768,
         dropout: float = 0.0,
+        num_kv_heads: int = 0,
         chunk_size: int = 30,
         max_cache_frames: int = 250,
         gradient_checkpointing: bool = False,
@@ -396,6 +462,7 @@ class StreamingDiT(nn.Module):
         self.hidden_size = hidden_size
         self.ffn_size = ffn_size
         self.num_heads = num_heads
+        self.num_kv_heads = num_kv_heads
         self.head_dim = hidden_size // num_heads
         self.mel_dim = mel_dim
         self.content_dim = content_dim
@@ -421,6 +488,7 @@ class StreamingDiT(nn.Module):
                 ffn_size=ffn_size,
                 dropout=dropout,
                 chunk_size=chunk_size,
+                num_kv_heads=num_kv_heads,
             )
             for _ in range(num_layers)
         ])
@@ -669,6 +737,7 @@ class StreamingDiT(nn.Module):
             mel_dim=source.mel_dim,
             content_dim=source.content_dim,
             dropout=0.0,
+            num_kv_heads=getattr(source, "num_kv_heads", 0),
             chunk_size=chunk_size,
             max_cache_frames=max_cache_frames,
             gradient_checkpointing=False,
@@ -758,6 +827,7 @@ class StreamingDiT(nn.Module):
             mel_dim=mel_dim,
             content_dim=getattr(dit_cfg, "content_dim", 768),
             dropout=getattr(dit_cfg, "dropout", 0.0),
+            num_kv_heads=getattr(dit_cfg, "num_kv_heads", 0),
             chunk_size=chunk_size,
             max_cache_frames=getattr(config, "max_cache_frames", 250),
             gradient_checkpointing=getattr(
@@ -885,6 +955,7 @@ class StreamingStylizer(nn.Module):
             mel_dim=self.mel_dim,
             content_dim=getattr(dit_cfg, "content_dim", _DEFAULT_CONTENT_DIM),
             dropout=getattr(dit_cfg, "dropout", 0.0),
+            num_kv_heads=getattr(dit_cfg, "num_kv_heads", 0),
             chunk_size=chunk_size,
             max_cache_frames=max_cache_frames,
             gradient_checkpointing=getattr(
@@ -1057,8 +1128,8 @@ class StreamingStylizer(nn.Module):
             x_t, t, content_dropped, context_dropped, style_dropped
         )
 
-        # 7. Compute masked CFM loss.
-        loss = self.cfm.compute_loss(velocity_pred, mel, x_0, mask)
+        # 7. Compute masked CFM loss (with Min-SNR weighting when enabled).
+        loss = self.cfm.compute_loss(velocity_pred, mel, x_0, mask, t=t)
 
         return {
             "loss": loss,

@@ -1,24 +1,26 @@
 # @package _global_
-# StyleStream Stylizer — Offline (non-streaming) training config
-# Reference: paper section 10.8, Tables 5-6
+# StyleStream Stylizer — Fast training config
+# Based on offline.yaml with reduced model size for rapid experimentation.
+# Changes: 10 DiT layers (was 16), FFN 2048 (was 3072), 200k steps (was 320k),
+#          compile_model enabled, progressive training, lion optimizer.
 
 defaults:
   - _self_
 
 # ── DiT backbone ──────────────────────────────────────────────────
 dit:
-  num_layers: 16
+  num_layers: 10               # FAST: reduced from 16
   hidden_size: 768
-  ffn_size: 3072        # 4x hidden
-  num_heads: 12         # head_dim = 64
-  adaln_zero: true      # adaLN-Zero conditioning (style + timestep)
+  ffn_size: 2048               # FAST: reduced from 3072
+  num_heads: 12                # head_dim = 64
+  adaln_zero: true             # adaLN-Zero conditioning (style + timestep)
   dropout: 0.0
   attention_type: "bidirectional"  # full self-attention for offline
 
 # ── Mel spectrogram (shared with vocoder) ─────────────────────────
 mel:
   n_mels: 100
-  hop_length: 320       # → 50 Hz at 16 kHz
+  hop_length: 320              # → 50 Hz at 16 kHz
   n_fft: 1024
   sample_rate: 16000
   f_min: 0
@@ -28,39 +30,36 @@ mel:
 style_encoder:
   model_id: "microsoft/wavlm-base-plus-sv"
   hidden_size: 768
-  num_layers: 13        # all transformer layers used
+  num_layers: 13               # all transformer layers used
   pooling: "attentive_statistics"
-  frozen: true          # WavLM backbone frozen; layer weights + TDNN head learnable
+  frozen: true                 # WavLM backbone frozen; layer weights + TDNN head learnable
 
 # ── Conditional Flow Matching ─────────────────────────────────────
 cfm:
-  nfe: 16               # number of function evaluations (ODE steps)
-  val_nfe: 0            # NFE for validation sampling. 0 = skip (loss-only)
+  nfe: 16                      # number of function evaluations (ODE steps)
+  val_nfe: 0                   # NFE for validation sampling. 0 = skip (loss-only)
   sampling: "euler"
   sigma_min: 1.0e-5
 
 # ── Classifier-free guidance ──────────────────────────────────────
 cfg:
   strength: 2.0
-  content_drop: 0.2     # probability of dropping content (destylizer) input
-  context_drop: 0.3     # probability of dropping unmasked context
-  style_drop: 0.3       # probability of dropping style embedding
+  content_drop: 0.2            # probability of dropping content (destylizer) input
+  context_drop: 0.3            # probability of dropping unmasked context
+  style_drop: 0.3              # probability of dropping style embedding
 
 # ── Spectrogram inpainting mask ───────────────────────────────────
 mask:
   ratio_min: 0.7
   ratio_max: 1.0
-  type: "contiguous"    # single contiguous span
-
-# ── Progressive training ─────────────────────────────────────────
-progressive: true        # ramp segment length & mask ratio over training
+  type: "contiguous"           # single contiguous span
 
 # ── Training ──────────────────────────────────────────────────────
 training:
-  steps: 320000
-  batch_size: 64        # per-GPU
+  steps: 200000                # FAST: reduced from 320000
+  batch_size: 64               # per-GPU
   num_gpus: 8
-  optimizer: "lion"
+  optimizer: "lion"            # FAST: lion optimizer
   peak_lr: 1.0e-4
   min_lr: 1.0e-6
   warmup_steps: 3000
@@ -68,11 +67,12 @@ training:
   gradient_clip: 1.0
   gradient_accumulation_steps: 1
   mixed_precision: "bf16"
-  segment_length: 6     # seconds — random crop per sample
+  compile_model: true          # FAST: enable torch.compile
+  progressive: true            # FAST: progressive training schedule
+  segment_length: 6            # seconds — random crop per sample
   log_interval: 100
   save_interval: 10000
   val_interval: 5000
-  compile_model: true
   seed: 42
 
 # ── Data ──────────────────────────────────────────────────────────

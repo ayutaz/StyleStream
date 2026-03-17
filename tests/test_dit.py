@@ -396,3 +396,220 @@ class TestDiT:
             }
             out = dit(**inputs)
             assert out.shape == (B, num_heads, MEL_DIM)
+
+
+# ======================================================================
+# GQA (Grouped Query Attention) Tests
+# ======================================================================
+
+
+GQA_KV_HEADS = 2  # 4 Q heads, 2 KV heads -> repeat factor 2
+
+
+def _make_gqa_dit_block(num_kv_heads: int = GQA_KV_HEADS) -> DiTBlock:
+    """Create a small DiTBlock with GQA enabled."""
+    torch.manual_seed(42)
+    return DiTBlock(
+        hidden_size=HIDDEN,
+        num_heads=HEADS,
+        ffn_size=FFN,
+        dropout=0.0,
+        num_kv_heads=num_kv_heads,
+    )
+
+
+class TestGQADiTBlock:
+    """Tests for DiTBlock with Grouped Query Attention."""
+
+    def test_gqa_output_shape(self) -> None:
+        """GQA block should produce the same output shape as MHA."""
+        block = _make_gqa_dit_block()
+        x = torch.randn(B, T_BLOCK, HIDDEN)
+        c = torch.randn(B, HIDDEN)
+        cos, sin = _make_rope_cos_sin(T_BLOCK)
+
+        out = block(x, c, cos, sin)
+        assert out.shape == (B, T_BLOCK, HIDDEN)
+
+    def test_gqa_uses_separate_projections(self) -> None:
+        """GQA block should have q_proj and kv_proj instead of qkv_proj."""
+        block = _make_gqa_dit_block()
+        assert hasattr(block, "q_proj"), "GQA block should have q_proj"
+        assert hasattr(block, "kv_proj"), "GQA block should have kv_proj"
+        assert not hasattr(block, "qkv_proj"), (
+            "GQA block should not have qkv_proj"
+        )
+
+    def test_gqa_kv_proj_size(self) -> None:
+        """KV projection output dimension should be 2 * head_dim * num_kv_heads."""
+        block = _make_gqa_dit_block()
+        expected_kv_dim = 2 * HEAD_DIM * GQA_KV_HEADS
+        assert block.kv_proj.out_features == expected_kv_dim
+
+    def test_gqa_q_proj_size(self) -> None:
+        """Q projection output should be full hidden_size."""
+        block = _make_gqa_dit_block()
+        assert block.q_proj.out_features == HIDDEN
+
+    def test_gqa_fewer_params_than_mha(self) -> None:
+        """GQA block should have fewer parameters than MHA block."""
+        mha_block = _make_dit_block()
+        gqa_block = _make_gqa_dit_block()
+
+        mha_params = sum(p.numel() for p in mha_block.parameters())
+        gqa_params = sum(p.numel() for p in gqa_block.parameters())
+
+        assert gqa_params < mha_params, (
+            f"GQA ({gqa_params}) should have fewer params than MHA ({mha_params})"
+        )
+
+    def test_gqa_residual_at_init(self) -> None:
+        """At init (zero gates), GQA block output should equal input."""
+        block = _make_gqa_dit_block()
+        x = torch.randn(B, T_BLOCK, HIDDEN)
+        c = torch.randn(B, HIDDEN)
+        cos, sin = _make_rope_cos_sin(T_BLOCK)
+
+        out = block(x, c, cos, sin)
+        torch.testing.assert_close(out, x, atol=1e-5, rtol=1e-5)
+
+    def test_gqa_gradient_flow(self) -> None:
+        """All GQA block parameters should receive gradients."""
+        block = _make_gqa_dit_block()
+        x = torch.randn(B, T_BLOCK, HIDDEN, requires_grad=True)
+        c = torch.randn(B, HIDDEN)
+        cos, sin = _make_rope_cos_sin(T_BLOCK)
+
+        out = block(x, c, cos, sin)
+        loss = out.sum()
+        loss.backward()
+
+        for name, param in block.named_parameters():
+            assert param.grad is not None, f"No gradient for {name}"
+            assert torch.isfinite(param.grad).all(), (
+                f"Nan/inf gradient for {name}"
+            )
+
+    @pytest.mark.parametrize("seq_len", [10, 50, 100])
+    def test_gqa_different_seq_lengths(self, seq_len: int) -> None:
+        """GQA block should work with various sequence lengths."""
+        block = _make_gqa_dit_block()
+        x = torch.randn(B, seq_len, HIDDEN)
+        c = torch.randn(B, HIDDEN)
+        cos, sin = _make_rope_cos_sin(seq_len)
+
+        out = block(x, c, cos, sin)
+        assert out.shape == (B, seq_len, HIDDEN)
+
+    @pytest.mark.parametrize("num_kv_heads", [1, 2, 4])
+    def test_gqa_various_kv_heads(self, num_kv_heads: int) -> None:
+        """GQA should work with different numbers of KV heads."""
+        block = _make_gqa_dit_block(num_kv_heads=num_kv_heads)
+        x = torch.randn(B, T_BLOCK, HIDDEN)
+        c = torch.randn(B, HIDDEN)
+        cos, sin = _make_rope_cos_sin(T_BLOCK)
+
+        out = block(x, c, cos, sin)
+        assert out.shape == (B, T_BLOCK, HIDDEN)
+
+    def test_gqa_num_kv_heads_must_divide_num_heads(self) -> None:
+        """num_heads must be divisible by num_kv_heads."""
+        with pytest.raises(AssertionError, match="divisible"):
+            DiTBlock(
+                hidden_size=HIDDEN,
+                num_heads=HEADS,  # 4
+                num_kv_heads=3,  # 4 % 3 != 0
+            )
+
+
+class TestGQADiT:
+    """Tests for the full DiT model with GQA enabled."""
+
+    def test_gqa_dit_output_shape(self) -> None:
+        """GQA DiT should produce the same output shape."""
+        dit = _make_dit(num_kv_heads=GQA_KV_HEADS)
+        inputs = _make_dit_inputs()
+
+        out = dit(**inputs)
+        assert out.shape == (B, T_DIT, MEL_DIM)
+
+    def test_gqa_dit_forward_no_error(self) -> None:
+        """GQA DiT forward should complete without errors."""
+        dit = _make_dit(num_kv_heads=GQA_KV_HEADS)
+        inputs = _make_dit_inputs()
+
+        out = dit(**inputs)
+        assert torch.isfinite(out).all(), "Output contains nan/inf"
+
+    def test_gqa_dit_zero_gate_identity(self) -> None:
+        """At initialization, GQA DiT output should be near zero."""
+        dit = _make_dit(num_kv_heads=GQA_KV_HEADS)
+        inputs = _make_dit_inputs()
+
+        out = dit(**inputs)
+        assert torch.allclose(out, torch.zeros_like(out), atol=1e-4), (
+            f"Initial GQA DiT output should be near zero, max: {out.abs().max()}"
+        )
+
+    def test_gqa_dit_gradient_flow(self) -> None:
+        """All GQA DiT parameters should receive gradients."""
+        dit = _make_dit(num_kv_heads=GQA_KV_HEADS)
+        inputs = _make_dit_inputs()
+
+        out = dit(**inputs)
+        loss = out.sum()
+        loss.backward()
+
+        for name, param in dit.named_parameters():
+            if param.requires_grad:
+                assert param.grad is not None, f"No gradient for {name}"
+                assert torch.isfinite(param.grad).all(), (
+                    f"Nan/inf gradient for {name}"
+                )
+
+    def test_gqa_dit_fewer_params(self) -> None:
+        """GQA DiT should have fewer parameters than MHA DiT."""
+        mha_dit = _make_dit()
+        gqa_dit = _make_dit(num_kv_heads=GQA_KV_HEADS)
+
+        mha_params = mha_dit.num_parameters()
+        gqa_params = gqa_dit.num_parameters()
+
+        assert gqa_params < mha_params, (
+            f"GQA ({gqa_params}) should have fewer params than MHA ({mha_params})"
+        )
+
+    def test_gqa_dit_from_config(self) -> None:
+        """DiT.from_config should correctly propagate num_kv_heads."""
+
+        @dataclass
+        class MockGQAConfig:
+            num_layers: int = 2
+            hidden_size: int = HIDDEN
+            ffn_size: int = FFN
+            num_heads: int = HEADS
+            num_kv_heads: int = GQA_KV_HEADS
+            content_dim: int = CONTENT_DIM
+            mel_dim: int = MEL_DIM
+            dropout: float = 0.0
+            gradient_checkpointing: bool = False
+
+        config = MockGQAConfig()
+        dit = DiT.from_config(config)
+
+        assert dit.num_kv_heads == GQA_KV_HEADS
+        # All blocks should use GQA
+        for block in dit.blocks:
+            assert block.use_gqa is True
+            assert block.num_kv_heads == GQA_KV_HEADS
+
+        inputs = _make_dit_inputs()
+        out = dit(**inputs)
+        assert out.shape == (B, T_DIT, MEL_DIM)
+
+    def test_default_num_kv_heads_is_mha(self) -> None:
+        """num_kv_heads=0 (default) should use standard MHA."""
+        dit = _make_dit()  # default: num_kv_heads=0
+        for block in dit.blocks:
+            assert block.use_gqa is False
+            assert hasattr(block, "qkv_proj")

@@ -24,6 +24,7 @@ warm_start:
 # ── CFM — fewer steps acceptable at streaming inference ───────────
 cfm:
   nfe: 8                # reduced for lower latency; quality trade-off minimal
+  val_nfe: 0            # NFE for validation sampling. 0 = skip (loss-only)
 
 # ── Streaming-specific training ───────────────────────────────────
 training:

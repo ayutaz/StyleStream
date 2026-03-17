@@ -60,11 +60,14 @@ class ConditionalFlowMatching(nn.Module):
         simple OT path.
     """
 
-    def __init__(self, sigma_min: float = 1e-5) -> None:
+    def __init__(self, sigma_min: float = 1e-5, snr_gamma: float = 0.0) -> None:
         super().__init__()
         if sigma_min < 0:
             raise ValueError(f"sigma_min must be non-negative, got {sigma_min}")
+        if snr_gamma < 0:
+            raise ValueError(f"snr_gamma must be non-negative, got {snr_gamma}")
         self.sigma_min = sigma_min
+        self.snr_gamma = snr_gamma
 
     # ------------------------------------------------------------------
     # Noise sampling
@@ -200,17 +203,23 @@ class ConditionalFlowMatching(nn.Module):
         x_1: torch.Tensor,
         x_0: torch.Tensor,
         mask: torch.Tensor,
+        t: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Compute masked CFM loss.
+        """Compute masked CFM loss with optional Min-SNR weighting.
 
         The loss is the mean squared error between the predicted velocity
         and the target velocity, restricted to the masked (inpainting)
-        region only.
+        region only.  When ``snr_gamma > 0`` and ``t`` is provided,
+        Min-SNR weighting (Hang et al., 2023) is applied per sample to
+        down-weight high-noise timesteps and accelerate convergence.
 
         .. math::
 
-            L = \\frac{\\sum_{b,t,d} m_{b,t} \\cdot (\\hat{v}_{b,t,d}
+            L = \\frac{\\sum_{b,t,d} w_b \\cdot m_{b,t} \\cdot (\\hat{v}_{b,t,d}
                 - u_{b,t,d})^2}{\\sum_{b,t} m_{b,t} \\cdot D + \\epsilon}
+
+        where :math:`w_b = \\min(\\text{SNR}(t_b), \\gamma) / \\text{SNR}(t_b)`
+        and :math:`\\text{SNR}(t) = t^2 / (1 - t)^2` for the OT path.
 
         Parameters
         ----------
@@ -223,6 +232,11 @@ class ConditionalFlowMatching(nn.Module):
         mask : torch.Tensor
             Shape ``(B, T)`` -- binary mask where ``1`` = masked (generate)
             and ``0`` = context.
+        t : torch.Tensor or None
+            Shape ``(B,)`` -- flow timestep used to generate ``x_t``.
+            Required when ``snr_gamma > 0`` for Min-SNR weighting.
+            When *None*, Min-SNR weighting is skipped regardless of
+            ``snr_gamma``.
 
         Returns
         -------
@@ -241,6 +255,19 @@ class ConditionalFlowMatching(nn.Module):
 
         # Zero out context positions
         masked_sq_diff = sq_diff * mask_expanded  # (B, T, mel_dim)
+
+        # Apply Min-SNR weighting (Hang et al., 2023) when enabled.
+        # For the OT path x_t = (1-t)*x_0 + t*x_1, the signal-to-noise
+        # ratio is SNR(t) = t^2 / (1-t)^2.  The weight clamps high-SNR
+        # timesteps and down-weights low-SNR (high-noise) timesteps that
+        # would otherwise dominate the loss.
+        if self.snr_gamma > 0 and t is not None:
+            eps_snr = 1e-8
+            snr = (t / (1.0 - t + eps_snr)).pow(2)  # (B,)
+            weights = torch.clamp(snr, max=self.snr_gamma) / (snr + eps_snr)  # (B,)
+            # Broadcast to (B, T, mel_dim)
+            weights = weights.view(-1, 1, 1)
+            masked_sq_diff = masked_sq_diff * weights
 
         # Normalise by the number of masked elements (frames * mel_dim)
         mel_dim = velocity_pred.shape[-1]
@@ -321,7 +348,10 @@ class ConditionalFlowMatching(nn.Module):
     # ------------------------------------------------------------------
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(sigma_min={self.sigma_min})"
+        return (
+            f"{self.__class__.__name__}("
+            f"sigma_min={self.sigma_min}, snr_gamma={self.snr_gamma})"
+        )
 
 
 # ======================================================================

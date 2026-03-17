@@ -96,6 +96,12 @@ class DiTBlock(nn.Module):
         FFN intermediate dimension.  Default 3072.
     dropout : float
         Dropout rate.  Default 0.0.
+    num_kv_heads : int
+        Number of key/value heads for Grouped Query Attention (GQA).
+        When ``0`` (default) or equal to ``num_heads``, standard
+        multi-head attention is used.  When ``0 < num_kv_heads < num_heads``,
+        K/V projections produce fewer heads and the results are
+        repeated to match the number of Q heads.
     """
 
     def __init__(
@@ -104,6 +110,7 @@ class DiTBlock(nn.Module):
         num_heads: int = 12,
         ffn_size: int = 3072,
         dropout: float = 0.0,
+        num_kv_heads: int = 0,
     ) -> None:
         super().__init__()
 
@@ -117,14 +124,34 @@ class DiTBlock(nn.Module):
         self.head_dim = hidden_size // num_heads
         self.ffn_size = ffn_size
 
+        # -- GQA configuration --
+        # num_kv_heads == 0 means full MHA (same as num_heads)
+        self.num_kv_heads = num_kv_heads if num_kv_heads > 0 else num_heads
+        self.use_gqa = self.num_kv_heads < self.num_heads
+
+        if self.use_gqa:
+            assert self.num_heads % self.num_kv_heads == 0, (
+                f"num_heads ({self.num_heads}) must be divisible by "
+                f"num_kv_heads ({self.num_kv_heads})"
+            )
+            self.kv_repeat_factor = self.num_heads // self.num_kv_heads
+
         # -- adaLN-Zero: generates 6 modulation vectors from c --
         self.adaln = AdaLNZero(hidden_size)
 
         # -- Self-Attention sub-layer --
         self.attn_modulation = AdaLNModulation(hidden_size)
 
-        # Fused Q/K/V projection
-        self.qkv_proj = nn.Linear(hidden_size, 3 * hidden_size, bias=True)
+        # Q/K/V projections: separate when using GQA, fused otherwise
+        if self.use_gqa:
+            # Q: full heads, KV: fewer heads
+            self.q_proj = nn.Linear(hidden_size, hidden_size, bias=True)
+            self.kv_proj = nn.Linear(
+                hidden_size, 2 * self.head_dim * self.num_kv_heads, bias=True
+            )
+        else:
+            # Fused Q/K/V projection (standard MHA)
+            self.qkv_proj = nn.Linear(hidden_size, 3 * hidden_size, bias=True)
         # Output projection
         self.out_proj = nn.Linear(hidden_size, hidden_size, bias=True)
         self.attn_dropout = nn.Dropout(dropout)
@@ -146,7 +173,11 @@ class DiTBlock(nn.Module):
         rope_cos: Tensor,
         rope_sin: Tensor,
     ) -> Tensor:
-        """Multi-head self-attention with RoPE.
+        """Multi-head self-attention with RoPE and optional GQA.
+
+        When GQA is enabled (``num_kv_heads < num_heads``), K and V are
+        projected to fewer heads and then repeated to match the number
+        of Q heads before the attention computation.
 
         Parameters
         ----------
@@ -164,14 +195,33 @@ class DiTBlock(nn.Module):
         H = self.num_heads
         D = self.head_dim
 
-        # Project to Q, K, V
-        qkv = self.qkv_proj(x)  # (B, T, 3 * hidden_size)
-        qkv = qkv.reshape(B, T, 3, H, D)
-        qkv = qkv.permute(2, 0, 3, 1, 4)  # (3, B, H, T, D)
-        q, k, v = qkv.unbind(dim=0)  # each (B, H, T, D)
+        if self.use_gqa:
+            # -- GQA path: separate Q and KV projections --
+            H_kv = self.num_kv_heads
 
-        # Apply RoPE to Q and K only (not V)
-        q, k = apply_rotary_pos_emb(q, k, rope_cos, rope_sin)
+            q = self.q_proj(x)  # (B, T, hidden_size)
+            q = q.reshape(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
+
+            kv = self.kv_proj(x)  # (B, T, 2 * head_dim * num_kv_heads)
+            kv = kv.reshape(B, T, 2, H_kv, D)
+            kv = kv.permute(2, 0, 3, 1, 4)  # (2, B, H_kv, T, D)
+            k, v = kv.unbind(0)  # each (B, H_kv, T, D)
+
+            # Apply RoPE to Q and K (K has fewer heads, but RoPE is per-head)
+            q, k = apply_rotary_pos_emb(q, k, rope_cos, rope_sin)
+
+            # Repeat KV heads to match Q heads
+            k = k.repeat_interleave(self.kv_repeat_factor, dim=1)  # (B, H, T, D)
+            v = v.repeat_interleave(self.kv_repeat_factor, dim=1)  # (B, H, T, D)
+        else:
+            # -- Standard MHA path: fused QKV projection --
+            qkv = self.qkv_proj(x)  # (B, T, 3 * hidden_size)
+            qkv = qkv.reshape(B, T, 3, H, D)
+            qkv = qkv.permute(2, 0, 3, 1, 4)  # (3, B, H, T, D)
+            q, k, v = qkv.unbind(dim=0)  # each (B, H, T, D)
+
+            # Apply RoPE to Q and K only (not V)
+            q, k = apply_rotary_pos_emb(q, k, rope_cos, rope_sin)
 
         # Scaled dot-product attention (PyTorch 2.0+ flash/efficient kernels)
         attn_output = F.scaled_dot_product_attention(
@@ -264,6 +314,10 @@ class DiT(nn.Module):
         Content feature dimension (from Destylizer).  Default 768.
     dropout : float
         Dropout rate.  Default 0.0.
+    num_kv_heads : int
+        Number of key/value heads for Grouped Query Attention (GQA).
+        When ``0`` (default) or equal to ``num_heads``, standard MHA
+        is used.  Set to e.g. 4 to enable GQA.
     gradient_checkpointing : bool
         If ``True``, use gradient checkpointing on DiT blocks to save
         memory at the cost of extra computation.  Default ``False``.
@@ -278,6 +332,7 @@ class DiT(nn.Module):
         mel_dim: int = 100,
         content_dim: int = 768,
         dropout: float = 0.0,
+        num_kv_heads: int = 0,
         gradient_checkpointing: bool = False,
     ) -> None:
         super().__init__()
@@ -286,6 +341,7 @@ class DiT(nn.Module):
         self.hidden_size = hidden_size
         self.ffn_size = ffn_size
         self.num_heads = num_heads
+        self.num_kv_heads = num_kv_heads
         self.head_dim = hidden_size // num_heads
         self.mel_dim = mel_dim
         self.content_dim = content_dim
@@ -309,6 +365,7 @@ class DiT(nn.Module):
                 num_heads=num_heads,
                 ffn_size=ffn_size,
                 dropout=dropout,
+                num_kv_heads=num_kv_heads,
             )
             for _ in range(num_layers)
         ])
@@ -322,10 +379,11 @@ class DiT(nn.Module):
         # Initialize input projection with Xavier uniform
         self._init_weights()
 
+        kv_heads_effective = num_kv_heads if num_kv_heads > 0 else num_heads
         logger.info(
-            "DiT: %d layers, hidden=%d, heads=%d, ffn=%d, "
+            "DiT: %d layers, hidden=%d, heads=%d (kv_heads=%d), ffn=%d, "
             "input=%d->%d, output=%d, params=%.2fM",
-            num_layers, hidden_size, num_heads, ffn_size,
+            num_layers, hidden_size, num_heads, kv_heads_effective, ffn_size,
             input_dim, hidden_size, mel_dim,
             self.num_parameters() / 1e6,
         )
@@ -432,6 +490,7 @@ class DiT(nn.Module):
             mel_dim=mel_dim,
             content_dim=getattr(dit_cfg, "content_dim", 768),
             dropout=getattr(dit_cfg, "dropout", 0.0),
+            num_kv_heads=getattr(dit_cfg, "num_kv_heads", 0),
             gradient_checkpointing=getattr(dit_cfg, "gradient_checkpointing", False),
         )
 
@@ -455,11 +514,15 @@ class DiT(nn.Module):
 
     def __repr__(self) -> str:
         n_params = self.num_parameters(trainable_only=True) / 1e6
+        kv_heads_effective = (
+            self.num_kv_heads if self.num_kv_heads > 0 else self.num_heads
+        )
         return (
             f"{self.__class__.__name__}(\n"
             f"  num_layers={self.num_layers},\n"
             f"  hidden_size={self.hidden_size},\n"
             f"  num_heads={self.num_heads},\n"
+            f"  num_kv_heads={kv_heads_effective},\n"
             f"  ffn_size={self.ffn_size},\n"
             f"  mel_dim={self.mel_dim},\n"
             f"  content_dim={self.content_dim},\n"

@@ -1,9 +1,7 @@
-# Destylizer Offline Configuration
-# Paper: StyleStream (arXiv:2602.20113v1), Section 10.8
-#
-# The Destylizer extracts content features by removing style information.
-# Architecture: HuBERT-Large (frozen) -> Conformer x6 -> FSQ [5,3,3] -> ASR Decoder
-# At inference time, only the pre-quantization continuous features (fc) are used.
+# Destylizer Fast Configuration
+# Based on offline.yaml with reduced model size for rapid experimentation.
+# Changes: 4 Conformer layers (was 6), FFN 2048 (was 3072),
+#          2 ASR decoder layers (was 4), 50k steps (was 80k).
 
 # --------------------------------------------------------------------------- #
 # HuBERT Feature Extractor
@@ -15,12 +13,12 @@ hubert:
   output_dim: 768
 
 # --------------------------------------------------------------------------- #
-# Conformer Encoder (6 layers, Macaron structure)
+# Conformer Encoder (4 layers, Macaron structure)
 # --------------------------------------------------------------------------- #
 conformer:
-  num_layers: 6
+  num_layers: 4                  # FAST: reduced from 6
   hidden_size: 768
-  ffn_size: 3072                 # Expansion ratio 4x
+  ffn_size: 2048                 # FAST: reduced from 3072
   positional_encoding: "alibi"   # ALiBi (no learned positional embeddings)
   kernel_size: 31                # Depthwise conv kernel (Conformer default)
   num_heads: 12                  # 768 / 64 = 12 heads
@@ -43,7 +41,7 @@ fsq:
 # ASR Decoder (used only during training, discarded at inference)
 # --------------------------------------------------------------------------- #
 asr_decoder:
-  num_layers: 4
+  num_layers: 2                  # FAST: reduced from 4
   hidden_size: 768
   ffn_size: 3072
   num_heads: 12
@@ -56,10 +54,10 @@ asr_decoder:
 # Training
 # --------------------------------------------------------------------------- #
 training:
-  steps: 80000
+  steps: 50000                   # FAST: reduced from 80000
   batch_size: 32                 # Total across all GPUs
   num_gpus: 8
-  optimizer: "lion"
+  optimizer: "adamw"
   betas: [0.9, 0.98]
   weight_decay: 0.01
   peak_lr: 1.0e-4
@@ -72,7 +70,6 @@ training:
   log_interval: 100
   save_interval: 10000
   val_interval: 5000
-  compile_model: true
 
 # --------------------------------------------------------------------------- #
 # Data

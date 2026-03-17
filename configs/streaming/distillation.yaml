@@ -15,6 +15,7 @@ training:
   steps: 80000
   batch_size: 32
   num_gpus: 8
+  optimizer: "lion"
   peak_lr: 1.0e-4
   min_lr: 1.0e-6
   warmup_steps: 4000
@@ -24,6 +25,7 @@ training:
   log_interval: 100
   save_interval: 10000
   val_interval: 2000
+  compile_model: true
   seed: 42
 
 data:

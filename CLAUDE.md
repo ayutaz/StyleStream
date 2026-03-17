@@ -11,7 +11,7 @@ StyleStreamはUC Berkeley Speech Groupによるリアルタイムゼロショッ
 
 ## 現在の状態
 
-フェーズ0〜6完了。全コンポーネント実装済み。ALiBi付きConformer×6、FSQ [5,3,3]、CTC/seq2seq ASRデコーダ、学習パイプライン、推論API実装済み。16層DiT、CFM、adaLN-Zero、WavLM-TDNNスタイルエンコーダ、CFG実装済み。Causal Vocos（ConvNeXt×8 + ISTFT + GAN学習）実装済み。チャンク因果注意、KVキャッシュ、StreamingHuBERT、MSE蒸留、ストリーミング推論パイプライン実装済み。評価パイプライン（Whisper WER/CER、Resemblyzer S-SIM、ECAPA A-SIM、emotion2vec E-SIM、UTMOS、プロービング、バッチ推論、集計・可視化）実装済み。次は学習実行とチューニング。
+フェーズ0〜6完了。全コンポーネント実装済み。ALiBi付きConformer×6、FSQ [5,3,3]、CTC/seq2seq ASRデコーダ、学習パイプライン、推論API実装済み。16層DiT、CFM、adaLN-Zero、WavLM-TDNNスタイルエンコーダ、CFG実装済み。Causal Vocos（ConvNeXt×8 + ISTFT + GAN学習）実装済み。チャンク因果注意、KVキャッシュ、StreamingHuBERT、MSE蒸留、ストリーミング推論パイプライン実装済み。評価パイプライン（Whisper WER/CER、Resemblyzer S-SIM、ECAPA A-SIM、emotion2vec E-SIM、UTMOS、プロービング、バッチ推論、集計・可視化）実装済み。学習・前処理高速化実装済み（Flash Attention、torch.compile、Lion optimizer、GQA、Progressive Training、Min-SNR、FP16 HuBERT、GPUバッチメル等）。fast設定ファイル（configs/*/fast.yaml）で2-3倍速の実験設定利用可能。次は学習実行とチューニング。
 
 ## アーキテクチャ（論文より）
 
@@ -102,6 +102,9 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
     - `probing.py` — 線形プロービング（話者/アクセント/感情スタイル漏洩分析）
   - `inference/` — 推論パイプライン
 - `configs/` — YAML設定ファイル（destylizer, stylizer, vocoder, data, eval）
+  - `configs/destylizer/fast.yaml` — 高速実験設定（Conformer×4, FFN 2048）
+  - `configs/stylizer/fast.yaml` — 高速実験設定（DiT×10, FFN 2048, Lion, progressive）
+  - `configs/vocoder/fast.yaml` — 高速実験設定（intermediate 1024）
 - `scripts/` — エントリーポイントスクリプト
   - `download_libritts.py`, `download_esd.py`, `download_globe.py` — データセットダウンロード
   - `download_models.py` — 事前学習モデルダウンロード
@@ -177,4 +180,15 @@ uv run python scripts/inference.py --source source.wav --reference ref.wav -o ou
 # モデルダウンロード
 uv run python scripts/download_models.py --stage train
 uv run python scripts/download_models.py --list
+
+# 高速実験設定での学習（品質85-90%、学習時間2-3倍速）
+uv run python scripts/train_destylizer.py --config configs/destylizer/fast.yaml
+uv run python scripts/train_stylizer.py --config configs/stylizer/fast.yaml
+uv run python scripts/train_vocoder.py --config configs/vocoder/fast.yaml
+
+# マイクロデータセットで前処理（アーキテクチャ検証用、数時間で完了）
+uv run python scripts/preprocess_data.py --manifest data/manifests/libritts.csv --output-dir data/processed --micro 1000
+
+# パイプライン並列前処理
+uv run python scripts/preprocess_data.py --manifest data/manifests/libritts.csv --output-dir data/processed --pipelined
 ```
