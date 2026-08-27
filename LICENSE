@@ -1,13 +1,44 @@
-Research-Only License
+MIT License
 
-Copyright (c) 2026 Berkeley Speech Group
+Copyright (c) 2026 ayutaz
 
-Permission is hereby granted to use, copy, modify, and distribute this
-software and its associated documentation files (the "Software") **solely
-for non-commercial research and educational purposes**.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Any use of the Software for commercial purposes, including but not limited
-to use in products, services, startups, or monetized platforms, is strictly
-prohibited without prior written permission from the copyright holder.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-The Software is provided "AS IS", without warranty of any kind.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Scope of this license
+
+This license covers **the source code in this repository**, which is an
+independent reimplementation written from the published paper alone
+(arXiv:2602.20113). It does not cover, and cannot grant rights to:
+
+- **Pretrained model weights** downloaded at runtime (WavLM, HuBERT, Vocos,
+  Whisper, and any evaluation models). Each carries its own license from its
+  own publisher.
+- **Datasets** used for training or evaluation. Several are restrictive --
+  Emilia is CC BY-NC (non-commercial), MSP-Podcast requires a signed academic
+  agreement, and LibriTTS is CC BY 4.0.
+- **Model weights produced by training this code**, whose permitted uses may be
+  constrained by the licenses of the data they were trained on.
+- **Artifacts released by the original authors** (checkpoints, `target_spkrs.tar`,
+  and the reference implementation), which remain under the UC Regents
+  Research, Educational, and Not-for-Profit Software License.
+
+If you use this code, check those licenses separately. See README.md for
+details on provenance.

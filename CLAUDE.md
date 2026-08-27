@@ -6,8 +6,22 @@
 
 StyleStreamはUC Berkeley Speech Groupによるリアルタイムゼロショット音声スタイル（音色・アクセント・感情）変換システムです。
 - 論文: http://arxiv.org/abs/2602.20113
-- デモ: https://berkeley-speech-group.github.io/StyleStream/
-- ライセンス: 研究目的のみ、商用利用不可
+- 論文著者によるデモ: https://berkeley-speech-group.github.io/StyleStream/
+
+**本リポジトリは論文のみから独立に再現実装したものです。** 原著者のコードは一切参照・流用していません
+（スタイルエンコーダの実装が2026-03-16、原著者によるコード公開が2026-06-11。git履歴で立証可能）。
+原著者・UC Berkeley・Berkeley Speech Group とは無関係で、公認も受けていません。
+
+git履歴の最初の数コミットが原著者名義なのは、本リポジトリが2026年2月に原著者リポジトリの
+フォークとして始まったため。**当時の中身は `LICENSE` / `README.md` / `docs/index.html` のみで、
+`.py` ファイルは0件**だった。コピーできるモデルコードは存在しなかった。
+フォーク関係は解除済みで、引き継いだファイルも残っていない。
+
+- 本リポジトリのコードのライセンス: **MIT**（Copyright (c) 2026 ayutaz）
+- ただし MIT が及ぶのは**本リポジトリのソースコードのみ**。事前学習重み（WavLM/HuBERT/Vocos等）、
+  学習データ（**Emilia は CC BY-NC で商用不可**、MSP-Podcast は署名付き学術契約が必要）、
+  および本コードで学習した重みには、それぞれ別のライセンスが独立に適用される。
+  原著者が配布するチェックポイント類は UC Regents の研究・教育目的ライセンス下にある。
 
 ## 現在の状態
 
@@ -128,7 +142,7 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
   - `evaluate.py` — 評価CLI（メトリクス選択、論文ベースライン比較、可視化）（実装済み）
   - `inference.py` — 推論CLI（単一/バッチ、オフライン/ストリーミング）（実装済み）
 - `tests/` — 603テスト（mel, audio, text, manifest, datasets, conformer, fsq, asr_head, destylizer_model, rope, timestep_embedding, adaln_zero, dit, style_encoder, cfm, cfg, stylizer_model, vocoder_components, vocoder_model, streaming_attention, streaming_models, eval_pipeline）
-- `docs/` — 静的デモWebサイト + 論文分析 + マイルストーン
+- `docs/` — 論文分析 + マイルストーン（すべて自作の Markdown）
 - `pyproject.toml`, `CLAUDE.md`, `README.md`, `LICENSE`, `.gitignore`
 
 ## 開発環境
