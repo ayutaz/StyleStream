@@ -1,11 +1,30 @@
 # StyleStream
 
 [![Paper](https://img.shields.io/badge/Paper-ArXiv-b31b1b?style=for-the-badge)](http://arxiv.org/abs/2602.20113)
-[![Demo](https://img.shields.io/badge/Demo-Page-4c4c4c?style=for-the-badge)](https://berkeley-speech-group.github.io/StyleStream/)
-[![License](https://img.shields.io/badge/License-Research--Only-blue?style=for-the-badge)](./LICENSE)
+[![Demo](https://img.shields.io/badge/Demo-Authors'%20Page-4c4c4c?style=for-the-badge)](https://berkeley-speech-group.github.io/StyleStream/)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](./LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-568%20passing-brightgreen?style=for-the-badge)](#implementation-status)
 
 A complete PyTorch reimplementation of **StyleStream: Real-Time Zero-Shot Voice Style Conversion** ([arXiv:2602.20113](http://arxiv.org/abs/2602.20113)).
+
+> ### Provenance
+>
+> **This is an independent, from-scratch reimplementation written from the published paper alone.**
+> No code from the original authors was used, viewed, or adapted while building it. Every module
+> here was derived by reading the paper and reconstructing the described architecture in PyTorch.
+>
+> The timeline is verifiable in this repository's git history: the style encoder landed
+> **2026-03-16**, roughly three months before the original authors published their model code
+> (**2026-06-11**). Where this implementation differs from theirs, the difference is an
+> interpretation gap, not a deviation from a reference that was available at the time.
+>
+> This repository is **not** affiliated with, endorsed by, or released by the original authors,
+> UC Berkeley, or the Berkeley Speech Group.
+>
+> One narrow exception, kept deliberately separate: analysis tooling may contain a clearly-marked
+> port of the reference implementation, used only as a fixed reference to A/B against. Any such
+> file names its source in its module docstring, carries the original license notice, and is not
+> part of the reimplementation itself.
 
 ## Overview
 
@@ -67,7 +86,7 @@ tests/                   # 568 tests across all modules
 Requires Python 3.12+. Uses [uv](https://docs.astral.sh/uv/) for package management.
 
 ```bash
-git clone https://github.com/berkeley-speech-group/StyleStream.git
+git clone https://github.com/ayutaz/StyleStream.git
 cd StyleStream
 
 # Core dependencies only
@@ -257,7 +276,7 @@ Reference baselines from Table 1 of the paper (StyleStream-Test, 3000 pairs):
 
 ## Citation
 
-If you find this repository useful, please consider giving a star and citation:
+The method is not mine. If this repository is useful to you, cite the paper it reimplements:
 
 ```bibtex
 @article{liu2026stylestream,
@@ -270,6 +289,20 @@ If you find this repository useful, please consider giving a star and citation:
 
 ## License
 
-This code is released under a **research-only, non-commercial license**.
+The code in this repository is released under the [MIT License](./LICENSE), Copyright (c) 2026
+ayutaz. It is an independent reimplementation from the paper, so the original authors' code
+license does not apply to it (see **Provenance** above).
 
-Commercial use is **not permitted** without explicit permission.
+**The MIT license covers this source code only.** It does not, and cannot, grant rights to the
+things this code depends on:
+
+| What | Whose terms apply |
+|---|---|
+| Pretrained weights (WavLM, HuBERT, Vocos, Whisper, evaluation models) | Each publisher's own license |
+| Training/evaluation datasets | **Emilia is CC BY-NC (non-commercial)**; MSP-Podcast needs a signed academic agreement; LibriTTS is CC BY 4.0 |
+| Weights you produce by training this code | Constrained by the licenses of the data used |
+| Artifacts released by the original authors (checkpoints, `target_spkrs.tar`, reference code) | UC Regents Research, Educational, and Not-for-Profit License |
+
+So "MIT" does not mean the trained system is free for any use. In particular, a model trained on
+Emilia inherits a non-commercial constraint from the data regardless of this license. Check the
+upstream terms for your intended use.

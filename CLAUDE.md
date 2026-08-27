@@ -6,8 +6,17 @@
 
 StyleStreamはUC Berkeley Speech Groupによるリアルタイムゼロショット音声スタイル（音色・アクセント・感情）変換システムです。
 - 論文: http://arxiv.org/abs/2602.20113
-- デモ: https://berkeley-speech-group.github.io/StyleStream/
-- ライセンス: 研究目的のみ、商用利用不可
+- 論文著者によるデモ: https://berkeley-speech-group.github.io/StyleStream/
+
+**本リポジトリは論文のみから独立に再現実装したものです。** 原著者のコードは一切参照・流用していません
+（スタイルエンコーダの実装が2026-03-16、原著者によるコード公開が2026-06-11。git履歴で立証可能）。
+原著者・UC Berkeley・Berkeley Speech Group とは無関係で、公認も受けていません。
+
+- 本リポジトリのコードのライセンス: **MIT**（Copyright (c) 2026 ayutaz）
+- ただし MIT が及ぶのは**本リポジトリのソースコードのみ**。事前学習重み（WavLM/HuBERT/Vocos等）、
+  学習データ（**Emilia は CC BY-NC で商用不可**、MSP-Podcast は署名付き学術契約が必要）、
+  および本コードで学習した重みには、それぞれ別のライセンスが独立に適用される。
+  原著者が配布するチェックポイント類は UC Regents の研究・教育目的ライセンス下にある。
 
 ## 現在の状態
 
