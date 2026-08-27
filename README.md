@@ -25,6 +25,10 @@ A complete PyTorch reimplementation of **StyleStream: Real-Time Zero-Shot Voice 
 > port of the reference implementation, used only as a fixed reference to A/B against. Any such
 > file names its source in its module docstring, carries the original license notice, and is not
 > part of the reimplementation itself.
+>
+> This repository ships **no audio samples, figures, or demo pages** — the ones it used to carry
+> were the original authors' and have been removed. There is nothing to demo yet: the models here
+> have not been trained. For the authors' own samples, see their project page linked above.
 
 ## Overview
 

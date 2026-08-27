@@ -137,7 +137,7 @@ StyleStreamは3段階パイプラインを使用: **Destylizer → Stylizer → 
   - `evaluate.py` — 評価CLI（メトリクス選択、論文ベースライン比較、可視化）（実装済み）
   - `inference.py` — 推論CLI（単一/バッチ、オフライン/ストリーミング）（実装済み）
 - `tests/` — 603テスト（mel, audio, text, manifest, datasets, conformer, fsq, asr_head, destylizer_model, rope, timestep_embedding, adaln_zero, dit, style_encoder, cfm, cfg, stylizer_model, vocoder_components, vocoder_model, streaming_attention, streaming_models, eval_pipeline）
-- `docs/` — 静的デモWebサイト + 論文分析 + マイルストーン
+- `docs/` — 論文分析 + マイルストーン（すべて自作の Markdown）
 - `pyproject.toml`, `CLAUDE.md`, `README.md`, `LICENSE`, `.gitignore`
 
 ## 開発環境
