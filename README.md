@@ -18,6 +18,13 @@ A complete PyTorch reimplementation of **StyleStream: Real-Time Zero-Shot Voice 
 > (**2026-06-11**). Where this implementation differs from theirs, the difference is an
 > interpretation gap, not a deviation from a reference that was available at the time.
 >
+> The history explains itself if you read it. The first few commits are authored by the original
+> authors, because this repository began in February 2026 as a fork of theirs — back when that
+> repository held **nothing but a project page**: a `LICENSE`, a `README.md`, and `docs/index.html`.
+> Not one `.py` file. There was no model code to copy, because none had been published. Everything
+> under `stylestream/` was written afterwards, from the paper. The fork link has since been removed
+> and their project page deleted, so nothing inherited from it remains.
+>
 > This repository is **not** affiliated with, endorsed by, or released by the original authors,
 > UC Berkeley, or the Berkeley Speech Group.
 >
