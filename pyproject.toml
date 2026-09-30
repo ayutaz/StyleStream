@@ -60,3 +60,6 @@ select = ["E", "F", "I", "W"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: longer integration tests (still run by default)",
+]
