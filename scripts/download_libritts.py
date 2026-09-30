@@ -14,7 +14,8 @@ Subsets:
 
 Usage:
     python scripts/download_libritts.py --output-dir data/raw/libritts
-    python scripts/download_libritts.py --output-dir data/raw/libritts --subsets train-clean-100 dev-clean test-clean
+    python scripts/download_libritts.py --output-dir data/raw/libritts \
+        --subsets train-clean-100 dev-clean test-clean
 """
 
 from __future__ import annotations

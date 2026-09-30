@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import random
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 import torch
 import torch.nn as nn
@@ -175,7 +175,11 @@ class DistillationDataset(Dataset):
             feat_path, map_location="cpu", weights_only=True,
         )
         # Normalise to (768, T) layout.
-        if features.dim() == 2 and features.shape[0] != _HUBERT_DIM and features.shape[1] == _HUBERT_DIM:
+        if (
+            features.dim() == 2
+            and features.shape[0] != _HUBERT_DIM
+            and features.shape[1] == _HUBERT_DIM
+        ):
             features = features.t()  # (T, 768) -> (768, T)
 
         feature_length = features.shape[-1]

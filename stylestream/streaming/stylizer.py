@@ -30,10 +30,10 @@ from stylestream.streaming.attention_mask import (
     chunked_causal_mask_to_attn_bias,
 )
 from stylestream.streaming.kv_cache import MultiLayerKVCache
-from stylestream.stylizer.adaln_zero import AdaLNZero, AdaLNModulation, FinalAdaLN
-from stylestream.stylizer.cfm import ConditionalFlowMatching
+from stylestream.stylizer.adaln_zero import AdaLNModulation, AdaLNZero, FinalAdaLN
 from stylestream.stylizer.cfg import ClassifierFreeGuidance
-from stylestream.stylizer.dit import DiT, DiTBlock
+from stylestream.stylizer.cfm import ConditionalFlowMatching
+from stylestream.stylizer.dit import DiT
 from stylestream.stylizer.rope import RotaryPositionEmbedding, apply_rotary_pos_emb
 from stylestream.stylizer.style_encoder import StyleEncoder
 from stylestream.stylizer.timestep_embedding import TimestepEmbedding

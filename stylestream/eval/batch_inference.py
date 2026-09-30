@@ -221,8 +221,8 @@ class BatchInference:
     def _load_streaming_pipeline(self) -> None:
         """Load streaming (chunked) pipeline."""
         from stylestream.streaming.destylizer import StreamingDestylizer
-        from stylestream.streaming.stylizer import StreamingStylizer
         from stylestream.streaming.pipeline import StreamingInferencePipeline
+        from stylestream.streaming.stylizer import StreamingStylizer
         from stylestream.vocoder.model import CausalVocos
 
         # Load streaming components
@@ -295,10 +295,6 @@ class BatchInference:
 
         Pipeline: Destylizer (content) -> Stylizer (mel generation) -> Vocoder (waveform)
         """
-        from stylestream.utils.mel import MelSpectrogramTransform
-
-        mel_transform = MelSpectrogramTransform().to(self.device)
-
         source = source_audio.to(self.device)
         target = target_audio.to(self.device)
 

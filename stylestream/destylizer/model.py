@@ -32,14 +32,17 @@ StyleStream spec
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 import torch.nn as nn
 
+from stylestream.destylizer.asr_head import ASRHead
 from stylestream.destylizer.conformer import ConformerEncoder
 from stylestream.destylizer.fsq import FSQ
-from stylestream.destylizer.asr_head import ASRHead
+
+if TYPE_CHECKING:
+    from stylestream.config import DestylizerConfig
 
 logger = logging.getLogger(__name__)
 

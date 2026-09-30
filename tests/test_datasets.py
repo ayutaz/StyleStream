@@ -305,7 +305,6 @@ class TestDestylizerDataset:
         """
         from stylestream.data.destylizer_dataset import (
             BucketBatchSampler,
-            DestylizerDataset,
         )
 
         ds = self._make_dataset(synthetic_data)
@@ -325,7 +324,7 @@ class TestDestylizerDataset:
         for batch_indices in batches:
             lengths = [ds[i]["feature_length"] for i in batch_indices]
             max_len = max(lengths)
-            total_bucket_padding += sum(max_len - l for l in lengths)
+            total_bucket_padding += sum(max_len - n for n in lengths)
 
         # Sequential batching baseline
         seq_batches = [
@@ -335,7 +334,7 @@ class TestDestylizerDataset:
         for batch_indices in seq_batches:
             lengths = [ds[i]["feature_length"] for i in batch_indices]
             max_len = max(lengths)
-            total_seq_padding += sum(max_len - l for l in lengths)
+            total_seq_padding += sum(max_len - n for n in lengths)
 
         # Bucket padding should be <= sequential padding
         assert total_bucket_padding <= total_seq_padding
@@ -401,7 +400,8 @@ class TestStylizerDataset:
         assert len(ds) < len(synthetic_data["utterances"])
 
     def test_getitem_returns_correct_keys(self, synthetic_data) -> None:
-        """Output should have mel, content_features, mask, context_mel, style_waveform, CFG drops."""
+        """Output should have mel, content_features, mask, context_mel, style_waveform,
+        CFG drops."""
         ds = self._make_dataset(synthetic_data)
         sample = ds[0]
 
@@ -680,7 +680,7 @@ class TestVocoderDataset:
         # Find a long utterance (> 4 s) so there is room for distinct offsets
         long_idx = None
         for i in range(len(ds)):
-            sample = ds[i]
+            ds[i]
             # The mel was cropped to exactly VOCODER_FRAMES, but the original
             # utterance might have been longer.  We cannot easily recover the
             # original length from the dataset output, so we just verify two

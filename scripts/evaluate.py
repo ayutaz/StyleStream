@@ -9,16 +9,16 @@ Computes the standard evaluation metrics from the paper:
 
 Usage:
     python scripts/evaluate.py --converted-dir eval_results/converted --pairs pairs.csv
-    python scripts/evaluate.py --converted-dir eval_results/converted --pairs pairs.csv --metrics wer,s_sim
-    python scripts/evaluate.py --converted-dir eval_results/converted --pairs pairs.csv --output-dir eval_results
+    python scripts/evaluate.py --converted-dir eval_results/converted --pairs pairs.csv \
+        --metrics wer,s_sim
+    python scripts/evaluate.py --converted-dir eval_results/converted --pairs pairs.csv \
+        --output-dir eval_results
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import logging
-import sys
 from pathlib import Path
 
 import torch
@@ -64,8 +64,10 @@ def main() -> None:
         epilog=(
             "Examples:\n"
             "  python scripts/evaluate.py --converted-dir converted/ --pairs pairs.csv\n"
-            "  python scripts/evaluate.py --converted-dir converted/ --pairs pairs.csv --metrics wer,s_sim\n"
-            "  python scripts/evaluate.py --converted-dir converted/ --pairs pairs.csv --output-dir results/\n"
+            "  python scripts/evaluate.py --converted-dir converted/ --pairs pairs.csv"
+            " --metrics wer,s_sim\n"
+            "  python scripts/evaluate.py --converted-dir converted/ --pairs pairs.csv"
+            " --output-dir results/\n"
         ),
     )
     parser.add_argument(

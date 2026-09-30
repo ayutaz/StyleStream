@@ -52,9 +52,9 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.utils.checkpoint import checkpoint as grad_checkpoint
 
+from stylestream.stylizer.adaln_zero import AdaLNModulation, AdaLNZero, FinalAdaLN
 from stylestream.stylizer.rope import RotaryPositionEmbedding, apply_rotary_pos_emb
 from stylestream.stylizer.timestep_embedding import TimestepEmbedding
-from stylestream.stylizer.adaln_zero import AdaLNZero, AdaLNModulation, FinalAdaLN
 
 logger = logging.getLogger(__name__)
 

@@ -14,14 +14,13 @@ from __future__ import annotations
 
 import pytest
 import torch
-import torch.nn as nn
 
 from stylestream.streaming.attention_mask import (
     build_chunked_causal_alibi_bias,
     build_chunked_causal_mask,
 )
-from stylestream.streaming.kv_cache import LayerKVCache, MultiLayerKVCache
 from stylestream.streaming.chunked_attention import ChunkedCausalMultiHeadAttention
+from stylestream.streaming.kv_cache import LayerKVCache, MultiLayerKVCache
 
 # ------------------------------------------------------------------
 # Shared constants

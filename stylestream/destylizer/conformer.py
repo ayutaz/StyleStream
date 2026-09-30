@@ -26,7 +26,6 @@ from torch.utils.checkpoint import checkpoint as grad_checkpoint
 
 from stylestream.destylizer.alibi import build_alibi_bias
 
-
 # ======================================================================
 # Feed-Forward Module
 # ======================================================================

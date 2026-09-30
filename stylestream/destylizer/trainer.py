@@ -13,9 +13,6 @@ Training spec (paper Section 10.8):
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
-
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader

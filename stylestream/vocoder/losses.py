@@ -21,7 +21,6 @@ from torch import Tensor
 
 from stylestream.utils.mel import MelSpectrogramTransform
 
-
 # ======================================================================
 # Standalone loss functions
 # ======================================================================

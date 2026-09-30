@@ -7,13 +7,10 @@ num_heads=4, num_layers=2.
 
 from __future__ import annotations
 
-import math
-
 import pytest
 import torch
-import torch.nn as nn
 
-from stylestream.destylizer.alibi import get_alibi_slopes, build_alibi_bias
+from stylestream.destylizer.alibi import build_alibi_bias, get_alibi_slopes
 from stylestream.destylizer.conformer import (
     ConformerBlock,
     ConformerEncoder,

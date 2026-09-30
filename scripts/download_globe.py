@@ -14,7 +14,8 @@ standard layout expected by the StyleStream pipeline.
 Usage:
     python scripts/download_globe.py --output-dir data/raw/globe
     python scripts/download_globe.py --output-dir data/raw/globe --source-url https://example.com/globe.tar.gz
-    python scripts/download_globe.py --output-dir data/raw/globe --local-archive /path/to/globe.tar.gz
+    python scripts/download_globe.py --output-dir data/raw/globe \
+        --local-archive /path/to/globe.tar.gz
 """
 
 from __future__ import annotations
@@ -271,10 +272,6 @@ def find_globe_root(extract_dir: Path) -> Path:
     wav_files = list(extract_dir.rglob("*.wav"))
     if not wav_files:
         return extract_dir
-
-    # Find the common prefix of all WAV files relative to extract_dir
-    first_wav = wav_files[0]
-    rel = first_wav.relative_to(extract_dir)
 
     # If there's a single top-level directory, descend into it
     top_dirs = [d for d in extract_dir.iterdir() if d.is_dir()]

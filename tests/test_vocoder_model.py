@@ -8,7 +8,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from stylestream.vocoder.model import CausalVocos
+from stylestream.utils.mel import MelSpectrogramTransform
 from stylestream.vocoder.discriminator import MultiScaleDiscriminator
 from stylestream.vocoder.losses import (
     VocoderLoss,
@@ -17,7 +17,7 @@ from stylestream.vocoder.losses import (
     generator_adversarial_loss,
     mel_reconstruction_loss,
 )
-from stylestream.utils.mel import MelSpectrogramTransform
+from stylestream.vocoder.model import CausalVocos
 
 # ------------------------------------------------------------------
 # Shared constants (small config for speed)

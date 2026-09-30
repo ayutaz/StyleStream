@@ -11,9 +11,12 @@ Checks (from Phase 1 milestone M4.1):
   - Duration statistics match expectations
 
 Usage:
-    python scripts/validate_features.py --manifest data/manifests/libritts.csv --processed-dir data/processed
-    python scripts/validate_features.py --manifest data/manifests/lmg.csv --processed-dir data/processed --check-hubert
-    python scripts/validate_features.py --manifest data/manifests/lmg.csv --processed-dir data/processed --sample-pct 1.0
+    python scripts/validate_features.py --manifest data/manifests/libritts.csv \
+        --processed-dir data/processed
+    python scripts/validate_features.py --manifest data/manifests/lmg.csv \
+        --processed-dir data/processed --check-hubert
+    python scripts/validate_features.py --manifest data/manifests/lmg.csv \
+        --processed-dir data/processed --sample-pct 1.0
 """
 
 from __future__ import annotations

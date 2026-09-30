@@ -20,7 +20,6 @@ from torch.utils.data import DataLoader
 
 from stylestream.utils.logging import log_metrics, setup_logger
 
-
 # ======================================================================
 # Progressive training schedule
 # ======================================================================

@@ -21,20 +21,20 @@ StreamingInferencePipeline
 """
 
 from stylestream.streaming.attention_mask import (
-    build_chunked_causal_mask,
     build_chunked_causal_alibi_bias,
+    build_chunked_causal_mask,
 )
 from stylestream.streaming.chunked_attention import ChunkedCausalMultiHeadAttention
-from stylestream.streaming.kv_cache import LayerKVCache, MultiLayerKVCache
-from stylestream.streaming.hubert_causal import StreamingHuBERT
 from stylestream.streaming.destylizer import StreamingDestylizer
+from stylestream.streaming.hubert_causal import StreamingHuBERT
+from stylestream.streaming.kv_cache import LayerKVCache, MultiLayerKVCache
+from stylestream.streaming.pipeline import StreamingInferencePipeline
+from stylestream.streaming.ring_buffer import RingBuffer, StreamingContext
 from stylestream.streaming.stylizer import (
     StreamingDiT,
     StreamingDiTBlock,
     StreamingStylizer,
 )
-from stylestream.streaming.ring_buffer import RingBuffer, StreamingContext
-from stylestream.streaming.pipeline import StreamingInferencePipeline
 
 __all__ = [
     "build_chunked_causal_mask",

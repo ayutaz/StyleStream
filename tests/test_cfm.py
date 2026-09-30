@@ -5,8 +5,6 @@ All tests are self-contained and use random tensors on CPU.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 import torch
 
@@ -165,7 +163,9 @@ class TestConditionalFlowMatching:
         mask = torch.ones(B, T)  # all masked
 
         loss = cfm.compute_loss(target_velocity, x_1, x_0, mask)
-        assert loss.item() < 1e-6, f"Loss should be ~0 when prediction matches target, got {loss.item()}"
+        assert loss.item() < 1e-6, (
+            f"Loss should be ~0 when prediction matches target, got {loss.item()}"
+        )
 
     def test_compute_loss_gradient(self) -> None:
         """Gradients should flow through the loss computation."""
@@ -210,7 +210,8 @@ class TestConditionalFlowMatching:
         """Output shape should match the requested shape."""
         cfm = _make_cfm()
         shape = (B, T, MEL_DIM)
-        velocity_fn = lambda x_t, t: torch.zeros_like(x_t)
+        def velocity_fn(x_t, t):
+            return torch.zeros_like(x_t)
 
         out = cfm.euler_sample(velocity_fn, shape, nfe=4)
         assert out.shape == shape
@@ -234,7 +235,8 @@ class TestConditionalFlowMatching:
         """With a fixed seed, euler_sample should produce consistent results."""
         cfm = _make_cfm()
         shape = (B, T, MEL_DIM)
-        velocity_fn = lambda x_t, t: torch.ones_like(x_t) * 0.1
+        def velocity_fn(x_t, t):
+            return torch.ones_like(x_t) * 0.1
 
         torch.manual_seed(42)
         out1 = cfm.euler_sample(velocity_fn, shape, nfe=4)

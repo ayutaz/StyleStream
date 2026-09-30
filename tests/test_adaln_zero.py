@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from stylestream.stylizer.adaln_zero import AdaLNZero, AdaLNModulation, FinalAdaLN
+from stylestream.stylizer.adaln_zero import AdaLNModulation, AdaLNZero, FinalAdaLN
 
 # ------------------------------------------------------------------
 # Shared constants

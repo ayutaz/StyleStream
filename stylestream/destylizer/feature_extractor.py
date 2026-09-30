@@ -460,7 +460,9 @@ class ContentFeatureExtractor:
                     # The config may be a full ExperimentConfig or just
                     # a DestylizerConfig section.
                     if hasattr(raw, "destylizer"):
-                        return DestylizerConfig(**OmegaConf.to_container(raw.destylizer, resolve=True))
+                        return DestylizerConfig(
+                            **OmegaConf.to_container(raw.destylizer, resolve=True)
+                        )
                     if hasattr(raw, "conformer"):
                         return DestylizerConfig(**OmegaConf.to_container(raw, resolve=True))
                 except Exception as exc:

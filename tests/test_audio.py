@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import torch
 
 from stylestream.utils.audio import (
@@ -23,7 +22,9 @@ from stylestream.utils.audio import (
 SAMPLE_RATE = 16_000
 
 
-def _make_sine(sr: int = SAMPLE_RATE, duration_sec: float = 1.0, freq: float = 440.0) -> torch.Tensor:
+def _make_sine(
+    sr: int = SAMPLE_RATE, duration_sec: float = 1.0, freq: float = 440.0
+) -> torch.Tensor:
     """Generate a 1-D sine-wave tensor."""
     t = torch.arange(0, int(sr * duration_sec), dtype=torch.float32) / sr
     return torch.sin(2 * torch.pi * freq * t)

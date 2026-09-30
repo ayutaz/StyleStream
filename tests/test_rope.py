@@ -12,7 +12,6 @@ import torch
 from stylestream.stylizer.rope import (
     RotaryPositionEmbedding,
     apply_rotary_pos_emb,
-    _rotate_half,
 )
 
 # ------------------------------------------------------------------
@@ -180,7 +179,7 @@ class TestApplyRotaryPosEmb:
         """
         torch.manual_seed(42)
         q = torch.randn(3, HEADS, SEQ_LEN, DIM)
-        k = torch.randn(3, HEADS, SEQ_LEN, DIM)
+        _k = torch.randn(3, HEADS, SEQ_LEN, DIM)  # keeps the RNG stream unchanged
         rope = _make_rope()
         cos, sin = rope(q)
 
