@@ -16,14 +16,10 @@ from __future__ import annotations
 
 import csv
 import json
-import math
-import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
-
 
 # =====================================================================
 # EvalResult / PairResult
@@ -1055,7 +1051,7 @@ class TestBaseEvaluatorContextManager:
         evaluator = DummyEval(device="cpu")
         assert not evaluator.is_loaded
         # Should lazy-load on evaluate
-        result = evaluator.evaluate_pair(torch.randn(16000))
+        evaluator.evaluate_pair(torch.randn(16000))
         assert evaluator.is_loaded
 
     def test_explicit_load_unload(self):

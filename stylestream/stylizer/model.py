@@ -61,10 +61,10 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+from stylestream.stylizer.cfg import ClassifierFreeGuidance
+from stylestream.stylizer.cfm import ConditionalFlowMatching
 from stylestream.stylizer.dit import DiT
 from stylestream.stylizer.style_encoder import StyleEncoder
-from stylestream.stylizer.cfm import ConditionalFlowMatching
-from stylestream.stylizer.cfg import ClassifierFreeGuidance
 
 logger = logging.getLogger(__name__)
 

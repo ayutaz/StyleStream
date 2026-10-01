@@ -150,8 +150,12 @@ class TestClassifierFreeGuidance:
         context_rate = context_drops / n_trials
         style_rate = style_drops / n_trials
 
-        assert abs(content_rate - 0.2) < 0.05, f"Content drop rate {content_rate:.3f}, expected ~0.2"
-        assert abs(context_rate - 0.3) < 0.05, f"Context drop rate {context_rate:.3f}, expected ~0.3"
+        assert abs(content_rate - 0.2) < 0.05, (
+            f"Content drop rate {content_rate:.3f}, expected ~0.2"
+        )
+        assert abs(context_rate - 0.3) < 0.05, (
+            f"Context drop rate {context_rate:.3f}, expected ~0.3"
+        )
         assert abs(style_rate - 0.3) < 0.05, f"Style drop rate {style_rate:.3f}, expected ~0.3"
 
     def test_independent_dropout(self) -> None:

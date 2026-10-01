@@ -18,13 +18,13 @@ VocoderLoss
     Combined loss manager.
 """
 
-from stylestream.vocoder.model import CausalVocos
 from stylestream.vocoder.backbone import VocosBackbone
-from stylestream.vocoder.istft_head import ISTFTHead
-from stylestream.vocoder.convnext import ConvNeXtBlock
 from stylestream.vocoder.causal_conv import CausalConv1d
+from stylestream.vocoder.convnext import ConvNeXtBlock
 from stylestream.vocoder.discriminator import MultiScaleDiscriminator
+from stylestream.vocoder.istft_head import ISTFTHead
 from stylestream.vocoder.losses import VocoderLoss
+from stylestream.vocoder.model import CausalVocos
 
 __all__ = [
     "CausalVocos",

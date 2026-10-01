@@ -37,8 +37,8 @@ get_evaluator, available_metrics
 from __future__ import annotations
 
 from stylestream.eval.aggregator import (
-    MetricStats,
     MetricsAggregator,
+    MetricStats,
     PairMetrics,
     compute_stats,
 )

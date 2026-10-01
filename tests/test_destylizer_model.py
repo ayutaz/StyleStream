@@ -16,11 +16,11 @@ import pytest
 import torch
 import torch.nn as nn
 
-from stylestream.destylizer.model import Destylizer
-from stylestream.destylizer.feature_extractor import ContentFeatureExtractor
-from stylestream.destylizer.conformer import ConformerEncoder
-from stylestream.destylizer.fsq import FSQ
 from stylestream.destylizer.asr_head import ASRHead
+from stylestream.destylizer.conformer import ConformerEncoder
+from stylestream.destylizer.feature_extractor import ContentFeatureExtractor
+from stylestream.destylizer.fsq import FSQ
+from stylestream.destylizer.model import Destylizer
 
 # ---------------------------------------------------------------------------
 # Constants

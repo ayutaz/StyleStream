@@ -173,7 +173,7 @@ class StreamingHuBERT(nn.Module):
             return
 
         try:
-            from transformers import HubertModel
+            from transformers import HubertModel  # noqa: F401 (availability check)
         except ImportError as exc:
             raise ImportError(
                 "The `transformers` library is required for StreamingHuBERT. "

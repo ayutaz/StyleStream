@@ -19,7 +19,7 @@ CSV format (one row per utterance)::
 All CSV I/O uses the standard library ``csv`` module.  Heavy dependencies
 (soundfile) are imported lazily so that lightweight operations like filtering
 or merging do not require them.
-"""
+"""  # noqa: E501 (verbatim CSV example row)
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ import csv
 import logging
 import random
 from collections import defaultdict
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Iterator, Sequence
 

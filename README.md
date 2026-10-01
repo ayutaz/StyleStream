@@ -3,7 +3,7 @@
 [![Paper](https://img.shields.io/badge/Paper-ArXiv-b31b1b?style=for-the-badge)](http://arxiv.org/abs/2602.20113)
 [![Demo](https://img.shields.io/badge/Demo-Authors'%20Page-4c4c4c?style=for-the-badge)](https://berkeley-speech-group.github.io/StyleStream/)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](./LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-568%20passing-brightgreen?style=for-the-badge)](#implementation-status)
+[![Tests](https://img.shields.io/badge/Tests-603%20passing-brightgreen?style=for-the-badge)](#implementation-status)
 
 A complete PyTorch reimplementation of **StyleStream: Real-Time Zero-Shot Voice Style Conversion** ([arXiv:2602.20113](http://arxiv.org/abs/2602.20113)).
 
@@ -89,12 +89,15 @@ stylestream/
   utils/                 # Mel, audio, logging, checkpointing utilities
 configs/                 # YAML configs (destylizer, stylizer, vocoder, streaming, eval, + fast.yaml variants)
 scripts/                 # CLI entry points for training, inference, evaluation
-tests/                   # 568 tests across all modules
+tests/                   # 603 tests across all modules
 ```
 
 ## Installation
 
 Requires Python 3.12+. Uses [uv](https://docs.astral.sh/uv/) for package management.
+
+`torch` / `torchaudio` are resolved from the PyTorch CUDA 12.8 index (`[tool.uv.sources]` in `pyproject.toml`), which only
+provides Linux and Windows wheels, so `uv sync` with the committed `uv.lock` does not currently work on macOS.
 
 ```bash
 git clone https://github.com/ayutaz/StyleStream.git
@@ -211,7 +214,7 @@ uv run python scripts/evaluate.py \
 ### Testing
 
 ```bash
-# Run all 568 tests
+# Run all 603 tests
 uv run pytest tests/ -v
 
 # Run tests for a specific module
@@ -268,7 +271,7 @@ uv run pytest tests/test_streaming_models.py -v
 | P5 | Streaming | Chunked causal attention, KV cache, StreamingHuBERT, MSE distillation, ring buffer | Done |
 | P6 | Evaluation | Whisper WER/CER, Resemblyzer S-SIM, ECAPA A-SIM, emotion2vec E-SIM, UTMOS, visualization | Done |
 
-**568 tests** covering all modules -- passing.
+**603 tests** covering all modules -- passing (CPU; `uv sync --extra dev --extra eval`).
 
 ## Paper Target Metrics
 

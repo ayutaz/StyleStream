@@ -13,20 +13,20 @@ WavLM/HuBERT to avoid downloading pretrained models.
 
 from __future__ import annotations
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
 import torch.nn as nn
 
-from stylestream.streaming.ring_buffer import RingBuffer, StreamingContext
 from stylestream.streaming.destylizer import StreamingDestylizer
+from stylestream.streaming.pipeline import StreamingInferencePipeline
+from stylestream.streaming.ring_buffer import RingBuffer, StreamingContext
 from stylestream.streaming.stylizer import (
-    StreamingDiTBlock,
     StreamingDiT,
+    StreamingDiTBlock,
     StreamingStylizer,
 )
-from stylestream.streaming.pipeline import StreamingInferencePipeline
 from stylestream.stylizer.style_encoder import StyleEncoder
 
 # ------------------------------------------------------------------
@@ -373,11 +373,11 @@ class TestStreamingDiTBlock:
     def test_with_chunk_mask(self, block: StreamingDiTBlock) -> None:
         """Output should be valid with chunked causal attention mask."""
         torch.manual_seed(42)
-        from stylestream.stylizer.rope import RotaryPositionEmbedding
         from stylestream.streaming.attention_mask import (
             build_chunked_causal_mask,
             chunked_causal_mask_to_attn_bias,
         )
+        from stylestream.stylizer.rope import RotaryPositionEmbedding
 
         B, T = 2, 20
         x = torch.randn(B, T, HIDDEN)

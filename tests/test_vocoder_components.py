@@ -6,9 +6,9 @@ import pytest
 import torch
 import torch.nn as nn
 
+from stylestream.vocoder.backbone import VocosBackbone
 from stylestream.vocoder.causal_conv import CausalConv1d
 from stylestream.vocoder.convnext import ConvNeXtBlock
-from stylestream.vocoder.backbone import VocosBackbone
 from stylestream.vocoder.istft_head import ISTFTHead
 
 # ------------------------------------------------------------------

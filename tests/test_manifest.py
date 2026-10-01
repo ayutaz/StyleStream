@@ -10,10 +10,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-import pytest
-
 from stylestream.data.manifest import Manifest, Utterance
-
 
 # ---------------------------------------------------------------------------
 # Helpers

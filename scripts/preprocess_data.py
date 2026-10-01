@@ -1,9 +1,12 @@
 """Preprocess audio data for StyleStream training.
 
 Usage:
-    python scripts/preprocess_data.py --manifest data/manifests/libritts.csv --output-dir data/processed
-    python scripts/preprocess_data.py --manifest data/manifests/lmg.csv --output-dir data/processed --stages resample mel
-    python scripts/preprocess_data.py --manifest data/manifests/lmg.csv --output-dir data/processed --stages all --num-workers 16
+    python scripts/preprocess_data.py --manifest data/manifests/libritts.csv \
+        --output-dir data/processed
+    python scripts/preprocess_data.py --manifest data/manifests/lmg.csv \
+        --output-dir data/processed --stages resample mel
+    python scripts/preprocess_data.py --manifest data/manifests/lmg.csv \
+        --output-dir data/processed --stages all --num-workers 16
 """
 
 from __future__ import annotations
